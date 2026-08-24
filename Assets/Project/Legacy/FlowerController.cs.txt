@@ -1,0 +1,155 @@
+using System;
+using UnityEngine;
+
+/// <summary>
+/// 화분 하나에 심긴 꽃 하나를 담당하는 컨트롤러.
+/// FlowerData(고정값) + FlowerInstance(런타임 상태)를 연결해서 실제 성장/개화/생산 로직을 굴린다.
+/// </summary>
+[RequireComponent(typeof(SpriteRenderer))]
+public class FlowerController : MonoBehaviour
+{
+    [Header("고정 데이터")]
+    public FlowerData data;
+
+    [Header("런타임 상태 (읽기 전용 - Inspector에서 확인용)")]
+    [SerializeField] private FlowerInstance instance;
+    [SerializeField] private GrowthStage currentStage;
+
+    private SpriteRenderer spriteRenderer;
+
+    // 개화 시 1회 발생하는 이벤트. UI/사운드/이펙트/조합체크/메모리얼체크 등이 여기 구독.
+    public event Action<FlowerController> OnBloom;
+
+    private void Awake()
+    {
+        spriteRenderer = GetComponent<SpriteRenderer>();
+    }
+
+    private void Start()
+    {
+        if (data == null)
+        {
+            Debug.LogError($"[FlowerController] {name}에 FlowerData가 할당되지 않았습니다.");
+            return;
+        }
+
+        Plant();
+    }
+
+    private void Update()
+    {
+        if (instance == null || data == null) return;
+
+        // 개화 후에는 매 프레임 골드 자동 생산 (초당 G/s를 델타타임만큼 누적)
+        if (instance.isBloomed)
+        {
+            float gps = data.GetGoldPerSecond(instance.currentLevel);
+            GameManager.Instance.AddGold(gps * Time.deltaTime);
+        }
+    }
+
+    /// <summary> 씨앗을 심는다 (새 FlowerInstance 생성). </summary>
+    public void Plant()
+    {
+        instance = new FlowerInstance(data.flowerId);
+        currentStage = instance.GetGrowthStage(data.requiredAffection);
+        UpdateVisual();
+    }
+
+    /// <summary>
+    /// 클릭 처리. 개화 전이면 애정 증가, 개화 후면 클릭 골드 획득.
+    /// 실제 UI 버튼이나 EventTrigger에서 이 함수를 호출하면 된다.
+    /// (프로토타입 검증용으로 OnMouseDown도 함께 연결해둠 - Collider2D 필요)
+    /// </summary>
+    public void OnClicked()
+    {
+        if (instance == null || data == null) return;
+
+        // 골드는 조건 없이 클릭 시 항상 증가
+        GameManager.Instance.AddGold(GameManager.Instance.touchGoldAmount);
+
+        // 개화 전에는 애정도 함께 증가. 개화 후에는 애정 개념이 없으므로 골드만.
+        if (!instance.isBloomed)
+        {
+            AddAffection(GameManager.Instance.touchAffectionAmount);
+        }
+        else
+        {
+            // TODO: 꽃소녀 개별 반응 연출 (모션/대사) 트리거
+        }
+    }
+
+    private void OnMouseDown()
+    {
+        OnClicked();
+    }
+
+    /// <summary> 애정을 더하고, 성장 단계를 재판정한다. 100% 도달 시 개화 이벤트 발생. </summary>
+    public void AddAffection(float amount)
+    {
+        if (instance.isBloomed) return;
+
+        instance.currentAffection += amount;
+
+        GrowthStage newStage = instance.GetGrowthStage(data.requiredAffection);
+        if (newStage != currentStage)
+        {
+            currentStage = newStage;
+            UpdateVisual();
+        }
+
+        if (instance.currentAffection >= data.requiredAffection && !instance.isBloomed)
+        {
+            Bloom();
+        }
+    }
+
+    /// <summary>
+    /// 개화 이벤트. 단순 스프라이트 교체가 아니라 하나의 이벤트로 묶어서 처리.
+    /// 애정 100% 달성 -> 개화 연출 -> 꽃소녀 등장 -> G/s 생산 시작 -> 패시브 활성화 -> (추후) 조합/메모리얼 체크
+    /// </summary>
+    private void Bloom()
+    {
+        instance.isBloomed = true;
+        instance.currentLevel = 1;
+        currentStage = GrowthStage.Bloomed;
+
+        UpdateVisual();
+
+        if (data.hasPassive)
+        {
+            // TODO: 패시브 활성화 로직 (PassiveManager 등에서 처리 예정)
+        }
+
+        OnBloom?.Invoke(this);
+        // TODO: 조합 보너스 체크, 메모리얼 조건 체크 훅 연결
+    }
+
+    /// <summary> 현재 단계에 맞는 스프라이트로 교체. (성장 단계 내부 마이크로 연출은 추후 추가) </summary>
+    private void UpdateVisual()
+    {
+        if (spriteRenderer == null || data == null) return;
+
+        switch (currentStage)
+        {
+            case GrowthStage.Seed:
+                spriteRenderer.sprite = data.seedSprite;
+                break;
+            case GrowthStage.Sprout:
+                spriteRenderer.sprite = data.sproutSprite;
+                break;
+            case GrowthStage.Growing:
+                spriteRenderer.sprite = data.growingSprite;
+                break;
+            case GrowthStage.Bloomed:
+                spriteRenderer.sprite = data.bloomSprite;
+                break;
+        }
+    }
+
+    // ===== 외부에서 상태 확인용 (UI 등에서 사용) =====
+    public bool IsBloomed => instance != null && instance.isBloomed;
+    public float GrowthPercent => instance != null ? instance.GetGrowthPercent(data.requiredAffection) : 0f;
+    public int CurrentAffection => instance != null ? Mathf.FloorToInt(instance.currentAffection) : 0;
+    public int CurrentLevel => instance != null ? instance.currentLevel : 0;
+}

@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0b99d32499cdb4b42b51f4290467756e, type: 3}
+  m_Name: FlowerData_Hydrangea
+  m_EditorClassIdentifier: Assembly-CSharp::FlowerData
+  flowerId: Hydrangea
+  displayName: "\uC218\uAD6D"
+  description: 
+  seedSprite: {fileID: -9095717837082945937, guid: 2f9a9fcfd173e72419605a6d3e4a05a4, type: 3}
+  sproutSprite: {fileID: -2413806693520163455, guid: ef98efc9bbb42c840ba8946f1a47baf6, type: 3}
+  growingSprite: {fileID: 7482667652216324306, guid: 048eef221866ef14eaaae35ba7f722b0, type: 3}
+  bloomSprite: {fileID: 7482667652216324306, guid: b9736ea17418d5f4f8f0d4581459fc5a, type: 3}
+  requiredAffection: 45000
+  seedPrice: 8500000
+  baseGoldPerSecond: 13000
+  levelUpBaseCost: 130000
+  levelUpGrowthRate: 1.2
+  goldPerSecondGrowthRate: 1.15
+  hasPassive: 0
+  passiveType: 0
+  passiveValue: 0
