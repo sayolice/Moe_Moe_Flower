@@ -25,6 +25,4 @@ MonoBehaviour:
   levelUpBaseCost: 10
   levelUpGrowthRate: 1.2
   goldPerSecondGrowthRate: 1.15
-  hasPassive: 0
-  passiveType: 0
-  passiveValue: 0
+  passives: []

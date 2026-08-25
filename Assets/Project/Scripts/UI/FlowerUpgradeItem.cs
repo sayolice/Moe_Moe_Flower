@@ -33,6 +33,8 @@ public class FlowerUpgradeItem : MonoBehaviour
     private long cachedGoldFloor = long.MinValue;
     private int cachedLevel = -1;
     private LevelUpAmount cachedMode = (LevelUpAmount)(-1);
+    private float cachedCostMultiplier = float.NaN; // 장미(전역 레벨업비용 할인)가 뒤늦게 켜지는 경우 대비
+    private float cachedGpsMultiplier = float.NaN;  // 해바라기(전역 G/s 보너스)가 뒤늦게 켜지는 경우 대비
 
     public void Setup(string id, LevelUpAmountSelector selector)
     {
@@ -73,11 +75,19 @@ public class FlowerUpgradeItem : MonoBehaviour
 
         LevelUpAmount mode = amountSelector != null ? amountSelector.Current : LevelUpAmount.One;
         long goldFloor = (long)GameManager.Instance.totalGold;
+        float costMultiplier = PassiveManager.Instance != null
+            ? PassiveManager.Instance.GetTotalMultiplier(PassiveEffectType.LevelUpCostDiscountPercent)
+            : 1f;
+        float gpsMultiplier = PassiveManager.Instance != null
+            ? PassiveManager.Instance.GetTotalMultiplier(PassiveEffectType.GoldPerSecondBonusPercent)
+            : 1f;
 
         bool needsRecalculate = !hasCache
             || goldFloor != cachedGoldFloor
             || instance.currentLevel != cachedLevel
-            || mode != cachedMode;
+            || mode != cachedMode
+            || !Mathf.Approximately(costMultiplier, cachedCostMultiplier)
+            || !Mathf.Approximately(gpsMultiplier, cachedGpsMultiplier);
 
         if (needsRecalculate)
         {
@@ -85,6 +95,8 @@ public class FlowerUpgradeItem : MonoBehaviour
             cachedGoldFloor = goldFloor;
             cachedLevel = instance.currentLevel;
             cachedMode = mode;
+            cachedCostMultiplier = costMultiplier;
+            cachedGpsMultiplier = gpsMultiplier;
 
             int levelsToApply = CalculateLevelsForMode(data, instance.currentLevel, mode, GameManager.Instance.totalGold);
             ApplyPreview(data, instance.currentLevel, levelsToApply, mode);
@@ -99,11 +111,11 @@ public class FlowerUpgradeItem : MonoBehaviour
         switch (mode)
         {
             case LevelUpAmount.One:
-                return data.GetLevelUpCost(currentLevel) <= gold ? 1 : 0;
+                return FlowerManager.Instance.GetEffectiveLevelUpCost(data, currentLevel) <= gold ? 1 : 0;
             case LevelUpAmount.Ten:
-                return Mathf.Min(10, data.GetMaxAffordableLevels(currentLevel, gold));
+                return Mathf.Min(10, FlowerManager.Instance.GetEffectiveMaxAffordableLevels(data, currentLevel, gold));
             case LevelUpAmount.Max:
-                return data.GetMaxAffordableLevels(currentLevel, gold);
+                return FlowerManager.Instance.GetEffectiveMaxAffordableLevels(data, currentLevel, gold);
             default:
                 return 0;
         }
@@ -111,7 +123,7 @@ public class FlowerUpgradeItem : MonoBehaviour
 
     private void ApplyPreview(FlowerData data, int currentLevel, int levelsToApply, LevelUpAmount mode)
     {
-        float currentGps = data.GetGoldPerSecond(currentLevel);
+        float currentGps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel);
 
         if (levelGpsText != null)
             levelGpsText.text = $"Lv.{currentLevel}   G/s {currentGps:0.00}";
@@ -119,7 +131,7 @@ public class FlowerUpgradeItem : MonoBehaviour
         if (levelsToApply <= 0)
         {
             // 지금 가능한 레벨이 0이어도, 참고용으로 "다음 1레벨" 비용은 계속 보여주고 버튼만 비활성화
-            long nextCost = data.GetLevelUpCost(currentLevel);
+            long nextCost = FlowerManager.Instance.GetEffectiveLevelUpCost(data, currentLevel);
             if (actionText != null)
                 actionText.text = $"{nextCost:N0}G → +0.00 G/s";
             if (actionButton != null)
@@ -127,8 +139,8 @@ public class FlowerUpgradeItem : MonoBehaviour
             return;
         }
 
-        long totalCost = data.GetLevelUpCostForLevels(currentLevel, levelsToApply);
-        float gpsAfter = data.GetGoldPerSecond(currentLevel + levelsToApply);
+        long totalCost = FlowerManager.Instance.GetEffectiveLevelUpCostForLevels(data, currentLevel, levelsToApply);
+        float gpsAfter = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel + levelsToApply);
         float gpsDelta = gpsAfter - currentGps;
 
         string suffix = mode == LevelUpAmount.Max ? $" / Lv.{currentLevel + levelsToApply}" : "";

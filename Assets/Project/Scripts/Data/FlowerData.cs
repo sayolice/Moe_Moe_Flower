@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -31,10 +32,8 @@ public class FlowerData : ScriptableObject
     public float levelUpGrowthRate = 1.20f; // 레벨업 비용 성장률 (기본 1.20)
     public float goldPerSecondGrowthRate = 1.15f; // 레벨업 시 G/s 증가율 (추후 조정)
 
-    [Header("패시브 (선택)")]
-    public bool hasPassive;
-    public PassiveType passiveType;
-    public float passiveValue;       // % 단위 (예: 3 = 3%)
+    [Header("패시브 (0개 이상)")]
+    public List<PassiveData> passives = new List<PassiveData>();
 
     // ===== 계산 함수 =====
 
@@ -91,15 +90,4 @@ public class FlowerData : ScriptableObject
 
         return levels;
     }
-}
-
-public enum PassiveType
-{
-    None,
-    GoldPerSecondPercent,      // 초당 골드 % 증가
-    AffectionGainPercent,      // 초당 애정 % 증가
-    LevelUpCostReductionPercent, // 레벨업 소모 골드 % 감소
-    SeedPriceReductionPercent,   // 꽃 구입 가격 % 감소
-    RequiredAffectionReductionPercent, // 요구 애정량 % 감소
-    IdleBonusPercent            // 방치 보너스 % 추가
 }

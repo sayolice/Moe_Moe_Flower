@@ -19,12 +19,17 @@ MonoBehaviour:
   sproutSprite: {fileID: 21300000, guid: 8c19aae307f91ce4db8a78291fe8a9ee, type: 3}
   growingSprite: {fileID: 21300000, guid: 77216dd48ee99f041b8fd6a2dcca2e9f, type: 3}
   bloomSprite: {fileID: -8699798872195895433, guid: e859da3c3ed56994cab8bb3fa36ceb6e, type: 3}
-  requiredAffection: 1200
-  seedPrice: 220
-  baseGoldPerSecond: 4
-  levelUpBaseCost: 40
+  requiredAffection: 400
+  seedPrice: 100
+  baseGoldPerSecond: 5
+  levelUpBaseCost: 50
   levelUpGrowthRate: 1.2
   goldPerSecondGrowthRate: 1.15
-  hasPassive: 0
-  passiveType: 0
-  passiveValue: 0
+  passives:
+  - passiveId: 
+    displayName: 
+    description: 
+    effectType: 0
+    scope: 0
+    value: 0
+    chance: 0

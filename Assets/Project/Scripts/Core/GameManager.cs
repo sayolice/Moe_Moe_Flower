@@ -28,6 +28,9 @@ public class GameManager : MonoBehaviour
         // TODO: UI 골드 표시 갱신 이벤트 연결
     }
 
+    /// <summary> 세이브 불러오기 전용: 골드를 저장된 값으로 직접 덮어쓴다. </summary>
+    public void SetGold(double amount) => totalGold = amount;
+
     public bool TrySpendGold(double amount)
     {
         if (totalGold < amount) return false;

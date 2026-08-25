@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0b99d32499cdb4b42b51f4290467756e, type: 3}
+  m_Name: FlowerData_Lavender
+  m_EditorClassIdentifier: Assembly-CSharp::FlowerData
+  flowerId: Lavender
+  displayName: "\uB77C\uBCA4\uB354"
+  description: 
+  seedSprite: {fileID: 7352465205200092826, guid: c725fcd5e9f0d8940a2c6fbbbc2905b4, type: 3}
+  sproutSprite: {fileID: 7352465205200092826, guid: c725fcd5e9f0d8940a2c6fbbbc2905b4, type: 3}
+  growingSprite: {fileID: 7352465205200092826, guid: c725fcd5e9f0d8940a2c6fbbbc2905b4, type: 3}
+  bloomSprite: {fileID: 7352465205200092826, guid: c725fcd5e9f0d8940a2c6fbbbc2905b4, type: 3}
+  requiredAffection: 12000000
+  seedPrice: 200000000
+  baseGoldPerSecond: 75000
+  levelUpBaseCost: 750000
+  levelUpGrowthRate: 1.2
+  goldPerSecondGrowthRate: 1.15
+  passives:
+  - passiveId: lavender_refund
+    displayName: "\uD5A5\uAE30\uB85C\uC6B4 \uC808\uC57D"
+    description: "\uB808\uBCA8\uC5C5 \uC2DC 5% \uD655\uB960\uB85C \uBE44\uC6A9 100% \uD658\uAE09"
+    effectType: 6
+    scope: 0
+    value: 1
+    chance: 0.05

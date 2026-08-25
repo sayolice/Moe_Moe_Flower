@@ -13,10 +13,10 @@ MonoBehaviour:
   m_Name: AutoAffection
   m_EditorClassIdentifier: Assembly-CSharp::PlayerStatData
   statId: autoAffection
-  displayName: 자동 애정
+  displayName: "\uC790\uB3D9 \uC560\uC815"
   valueSuffix: /s
   startingLevel: 0
-  baseValue: 1
-  valueGrowthRate: 1.9
-  upgradeBaseCost: 5000
-  upgradeCostGrowthRate: 1.2
+  baseValue: 0.5
+  valueGrowthRate: 1.12
+  upgradeBaseCost: 1000
+  upgradeCostGrowthRate: 1.3

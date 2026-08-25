@@ -19,11 +19,6 @@ public class ShopItem : MonoBehaviour
 
         flowerNameText.text = data.displayName;
 
-        if (data.seedPrice == 0)
-            priceText.text = "무료";
-        else
-            priceText.text = $"{data.seedPrice:N0} G";
-
         buyButton.onClick.RemoveAllListeners();
         buyButton.onClick.AddListener(OnBuyClicked);
 
@@ -39,6 +34,10 @@ public class ShopItem : MonoBehaviour
 
         // 이미 구매한 꽃은 구매 버튼 비활성화
         buyButton.interactable = !owned;
+
+        // 씨앗가 전역 할인 패시브(튤립)가 있으면 매 프레임 최신 할인가로 갱신될 수 있으므로 여기서 표시
+        long effectivePrice = FlowerManager.Instance.GetEffectiveSeedPrice(flowerData);
+        priceText.text = effectivePrice == 0 ? "무료" : $"{effectivePrice:N0} G";
     }
 
     private void OnBuyClicked()

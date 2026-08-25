@@ -19,12 +19,18 @@ MonoBehaviour:
   sproutSprite: {fileID: -2413806693520163455, guid: ef98efc9bbb42c840ba8946f1a47baf6, type: 3}
   growingSprite: {fileID: 7482667652216324306, guid: 048eef221866ef14eaaae35ba7f722b0, type: 3}
   bloomSprite: {fileID: 7482667652216324306, guid: b9736ea17418d5f4f8f0d4581459fc5a, type: 3}
-  requiredAffection: 45000
-  seedPrice: 8500000
-  baseGoldPerSecond: 13000
-  levelUpBaseCost: 130000
+  requiredAffection: 26000
+  seedPrice: 180000
+  baseGoldPerSecond: 600
+  levelUpBaseCost: 6000
   levelUpGrowthRate: 1.2
   goldPerSecondGrowthRate: 1.15
-  hasPassive: 0
-  passiveType: 0
-  passiveValue: 0
+  passives:
+  - passiveId: hydrangea_support_touch
+    displayName: "\uBCC0\uD654\uC758 \uAF43\uC78E"
+    description: "\uAF43 \uD130\uCE58 \uC2DC \uC560\uC815 +1 / \uACE8\uB4DC +1 (\uBCF8\uC778
+      \uD3EC\uD568)"
+    effectType: 4
+    scope: 2
+    value: 1
+    chance: 1

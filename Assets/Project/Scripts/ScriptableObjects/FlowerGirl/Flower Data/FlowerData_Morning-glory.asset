@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0b99d32499cdb4b42b51f4290467756e, type: 3}
+  m_Name: FlowerData_Morning-glory
+  m_EditorClassIdentifier: Assembly-CSharp::FlowerData
+  flowerId: Morning-glory
+  displayName: "\uB098\uD314\uAF43"
+  description: 
+  seedSprite: {fileID: -7579958432565501468, guid: 2a8cc86ff538a4c4b8dbca90676ebdf8, type: 3}
+  sproutSprite: {fileID: -7579958432565501468, guid: 2a8cc86ff538a4c4b8dbca90676ebdf8, type: 3}
+  growingSprite: {fileID: -7579958432565501468, guid: 2a8cc86ff538a4c4b8dbca90676ebdf8, type: 3}
+  bloomSprite: {fileID: -7579958432565501468, guid: 2a8cc86ff538a4c4b8dbca90676ebdf8, type: 3}
+  requiredAffection: 2000000
+  seedPrice: 20000000
+  baseGoldPerSecond: 15000
+  levelUpBaseCost: 150000
+  levelUpGrowthRate: 1.2
+  goldPerSecondGrowthRate: 1.15
+  passives:
+  - passiveId: morningglory_touch_gold
+    displayName: "\uC544\uCE68\uC744 \uC5EC\uB294 \uC190\uAE38"
+    description: "\uD130\uCE58 \uC2DC 6% \uD655\uB960\uB85C \uACE8\uB4DC 1\uD68C \uCD94\uAC00"
+    effectType: 7
+    scope: 2
+    value: 1
+    chance: 0.06

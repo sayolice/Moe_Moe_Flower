@@ -17,6 +17,9 @@ public class UIManager : MonoBehaviour
     public TMP_Text affectionPerSecondText;
     public TMP_Text affectionValueText;
 
+    [Header("꽃 전환 인디케이터 (예: \"3 / 5\")")]
+    public TMP_Text flowerIndicatorText;
+
     [Header("AffectionBar - Background를 게이지로 사용")]
     public Image affectionBarFillImage;
 
@@ -57,6 +60,18 @@ public class UIManager : MonoBehaviour
         UpdateRates(instance);
         UpdateGoldUI();
         UpdateFlowerStatusUI(instance, data);
+        UpdateIndicator();
+    }
+
+    /// <summary> "3 / 5" 형태로 현재 표시 중인 꽃이 보유 꽃 중 몇 번째인지 표시한다. </summary>
+    private void UpdateIndicator()
+    {
+        if (flowerIndicatorText == null) return;
+
+        int index = FlowerManager.Instance.CurrentDisplayIndex;
+        int count = FlowerManager.Instance.OwnedFlowerCount;
+
+        flowerIndicatorText.text = (index >= 0 && count > 0) ? $"{index + 1} / {count}" : "";
     }
 
     private void UpdateRates(FlowerInstance instance)
@@ -107,10 +122,14 @@ public class UIManager : MonoBehaviour
 
         if (instance.isBloomed)
         {
+            // 개화한 꽃은 애정 게이지 대신 해당 꽃의 레벨/G·s를 보여준다(도감 요구사항).
+            // 레벨업 자체는 여전히 오른쪽 꽃 탭(FlowerUpgradePanel)에서만 가능 — 여기는 표시 전용.
+            float gps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, instance.currentLevel);
+
             if (affectionPerSecondText != null)
-                affectionPerSecondText.text = "개화 완료";
+                affectionPerSecondText.text = $"Lv.{instance.currentLevel}   G/s {gps:0.0}";
             if (affectionValueText != null)
-                affectionValueText.text = ""; // 꽃 레벨은 오른쪽 꽃 탭(FlowerUpgradePanel)에서만 표시
+                affectionValueText.text = "";
             SetBarFill(1f);
             return;
         }

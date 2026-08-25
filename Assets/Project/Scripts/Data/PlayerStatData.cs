@@ -43,6 +43,45 @@ public class PlayerStatData : ScriptableObject
         double cost = upgradeBaseCost * System.Math.Pow(upgradeCostGrowthRate, currentLevel - startingLevel);
         return (long)cost;
     }
+
+    /// <summary>
+    /// fromLevel에서 시작해 levels번 연속 강화할 때 드는 총 비용 (미리보기 전용, 상태 변경 없음).
+    /// FlowerData.GetLevelUpCostForLevels와 동일 원칙 — +10/MAX 버튼의 "실제 총 비용" 표시에 사용.
+    /// </summary>
+    public long GetUpgradeCostForLevels(int fromLevel, int levels)
+    {
+        if (levels <= 0) return 0;
+
+        long total = 0;
+        for (int i = 0; i < levels; i++)
+        {
+            total += GetUpgradeCost(fromLevel + i);
+        }
+        return total;
+    }
+
+    /// <summary>
+    /// fromLevel에서 시작해 주어진 골드로 몇 레벨까지 강화할 수 있는지 계산 (미리보기 전용, 상태 변경 없음).
+    /// FlowerData.GetMaxAffordableLevels와 동일 원칙 — +10(상한 계산)/MAX 버튼 표시에 사용.
+    /// </summary>
+    public int GetMaxAffordableLevels(int fromLevel, double gold)
+    {
+        const int SAFETY_CAP = 100000;
+
+        int levels = 0;
+        double remaining = gold;
+
+        while (levels < SAFETY_CAP)
+        {
+            long cost = GetUpgradeCost(fromLevel + levels);
+            if (cost > remaining) break;
+
+            remaining -= cost;
+            levels++;
+        }
+
+        return levels;
+    }
 }
 
 public enum PlayerStatType

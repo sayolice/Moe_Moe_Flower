@@ -17,6 +17,6 @@ MonoBehaviour:
   valueSuffix:
   startingLevel: 1
   baseValue: 1
-  valueGrowthRate: 1.15
+  valueGrowthRate: 1.05
   upgradeBaseCost: 50
-  upgradeCostGrowthRate: 1.2
+  upgradeCostGrowthRate: 1.35
