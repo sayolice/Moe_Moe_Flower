@@ -38,11 +38,12 @@ public class PlayerStatRow : MonoBehaviour
         isSetUp = true;
         hasCache = false; // 새로 연결됐으니 다음 프레임에 강제로 재계산
 
+        // Execute 연결은 holdRepeatButton 하나로만 한다 — actionButton.onClick까지 같이 걸면
+        // 짧게 한 번 눌러도 "누르는 순간"(HoldRepeatButton.OnPointerDown)과 "떼는 순간"(Button.onClick)
+        // 두 번 발동해서 1회 클릭에 강화가 2번 일어나는 버그가 된다. Button은 interactable
+        // 상태(회색 처리 등) 표시/판정용으로만 남겨두고, 리스너는 비워둔다.
         if (actionButton != null)
-        {
             actionButton.onClick.RemoveAllListeners();
-            actionButton.onClick.AddListener(Execute);
-        }
 
         if (holdRepeatButton != null)
         {
@@ -106,14 +107,14 @@ public class PlayerStatRow : MonoBehaviour
         float currentValue = data.GetValue(currentLevel);
 
         if (valueText != null)
-            valueText.text = $"Lv.{currentLevel}   현재 +{currentValue:0.00}{data.valueSuffix}";
+            valueText.text = $"Lv.{currentLevel}   현재 +{NumberFormatUtil.Format(currentValue)}{data.valueSuffix}";
 
         if (levelsToApply <= 0)
         {
             // 지금 가능한 레벨이 0이어도, 참고용으로 "다음 1레벨" 비용은 계속 보여주고 버튼만 비활성화
             long nextCost = data.GetUpgradeCost(currentLevel);
             if (actionText != null)
-                actionText.text = $"{nextCost:N0}G → +0.00{data.valueSuffix}";
+                actionText.text = $"{NumberFormatUtil.FormatGold(nextCost)} → +0{data.valueSuffix}";
             if (actionButton != null)
                 actionButton.interactable = false;
             return;
@@ -126,7 +127,7 @@ public class PlayerStatRow : MonoBehaviour
         string suffix = mode == LevelUpAmount.Max ? $" / Lv.{currentLevel + levelsToApply}" : "";
 
         if (actionText != null)
-            actionText.text = $"{totalCost:N0}G → +{valueDelta:0.00}{data.valueSuffix}{suffix}";
+            actionText.text = $"{NumberFormatUtil.FormatGold(totalCost)} → +{NumberFormatUtil.Format(valueDelta)}{data.valueSuffix}{suffix}";
 
         if (actionButton != null)
             actionButton.interactable = true;

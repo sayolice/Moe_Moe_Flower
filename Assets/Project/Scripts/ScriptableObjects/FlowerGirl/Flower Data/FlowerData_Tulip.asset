@@ -26,10 +26,10 @@ MonoBehaviour:
   levelUpGrowthRate: 1.2
   goldPerSecondGrowthRate: 1.15
   passives:
-  - passiveId: 
-    displayName: 
-    description: 
-    effectType: 0
+  - passiveId: tulip_seed_price_discount
+    displayName: "산뜻한 절약"
+    description: "모든 꽃의 씨앗 가격 -3%"
+    effectType: 1
     scope: 0
-    value: 0
-    chance: 0
+    value: -0.03
+    chance: 1

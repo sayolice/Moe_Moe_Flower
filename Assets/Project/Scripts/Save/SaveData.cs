@@ -13,6 +13,13 @@ public class FlowerSaveEntry
     public int currentLevel;
     public bool isBloomed;
 
+    // 유대 필드가 없는 예전 세이브 파일을 JsonUtility로 읽으면, 이 필드들은 그냥 C# 기본값
+    // (double 0 / int 0 / 필드 초기화식이 만든 빈 리스트)으로 채워진다 — JsonUtility는 JSON에 없는
+    // 필드를 예외 없이 기본값으로 남겨두므로 별도의 버전 분기나 마이그레이션 코드가 필요 없다.
+    public double bond;
+    public int bondLevel;
+    public List<int> readMemorialBondLevels = new List<int>();
+
     public FlowerSaveEntry() { }
 
     public FlowerSaveEntry(FlowerInstance instance)
@@ -21,6 +28,11 @@ public class FlowerSaveEntry
         currentAffection = instance.currentAffection;
         currentLevel = instance.currentLevel;
         isBloomed = instance.isBloomed;
+        bond = instance.bond;
+        bondLevel = instance.bondLevel;
+        readMemorialBondLevels = instance.readMemorialBondLevels != null
+            ? new List<int>(instance.readMemorialBondLevels)
+            : new List<int>();
     }
 
     /// <summary> 저장된 값을 바탕으로 런타임 FlowerInstance를 새로 만든다. </summary>
@@ -30,7 +42,12 @@ public class FlowerSaveEntry
         {
             currentAffection = currentAffection,
             currentLevel = currentLevel,
-            isBloomed = isBloomed
+            isBloomed = isBloomed,
+            bond = bond,
+            bondLevel = bondLevel,
+            readMemorialBondLevels = readMemorialBondLevels != null
+                ? new List<int>(readMemorialBondLevels)
+                : new List<int>()
         };
         return instance;
     }

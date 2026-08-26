@@ -22,9 +22,24 @@ public static class PCLayoutBuilder
     const float HALF_MOBILE_W    = 303.75f;
     const float TOPBAR_HEIGHT    = 70f;
     const float FLOWER_UI_HEIGHT = 100f;
+    const float DEX_HEADER_HEIGHT = 64f;
 
     const string FLOWER_UPGRADE_ITEM_PREFAB_PATH = "Assets/Project/Prefabs/FlowerUpgradeItem.prefab";
     const string FLOWER_DEX_ITEM_PREFAB_PATH = "Assets/Project/Prefabs/FlowerDexItem.prefab";
+
+    /// <summary>
+    /// CI/커맨드라인 전용 진입점 (Unity -batchmode -executeMethod로 호출).
+    /// 메뉴로 BuildLayout()을 직접 누르면 이미 열려 있는 씬을 대상으로 동작하고 저장은 사람이 하지만,
+    /// 배치 모드는 씬을 스스로 열고 저장까지 마쳐야 한다는 점만 다르다.
+    /// </summary>
+    public static void BuildLayoutAndSave()
+    {
+        var scene = EditorSceneManager.OpenScene("Assets/Scenes/SampleScene.unity", OpenSceneMode.Single);
+        BuildLayout();
+        EditorSceneManager.MarkSceneDirty(scene);
+        EditorSceneManager.SaveScene(scene);
+        AssetDatabase.SaveAssets();
+    }
 
     [MenuItem("Tools/🌸 Build PC Layout")]
     public static void BuildLayout()
@@ -157,6 +172,9 @@ public static class PCLayoutBuilder
         // ── 꽃 도감 팝업 (Canvas 최상위, 화면 전체 오버레이 — 사이드바가 숨는 모바일에서도 접근 가능) ──
         FlowerDexPanel dexPanel = BuildFlowerDexPanel(canvasGO.transform);
 
+        // ── 유대 메모리얼 뷰 (Canvas 최상위, 도감과 동일한 전체 오버레이 방식) ──
+        BuildMemorialViewPanel(canvasGO.transform);
+
         // TopBar의 도감 열기 버튼을 FlowerDexPanel.openButton 필드에 연결한다.
         // 여기서 onClick.AddListener를 직접 호출하지 않는 이유: 에디터 스크립트는 Play 모드 밖에서
         // 실행되므로 그렇게 붙인 리스너는 씬에 저장되지 않는다(런타임 전용 리스너). 필드만 연결해두면
@@ -285,6 +303,16 @@ public static class PCLayoutBuilder
         barTrack.sprite = null;
         barTrack.type = Image.Type.Simple;
 
+        // 개화 후에는 이 바가 유대(Bond) 게이지로 재사용된다(UIManager.UpdateFlowerStatusUI) — 탭하면
+        // 지금 표시 중인 꽃의 메모리얼을 연다. 미개화 중에는 UIManager가 조건만으로 무시하므로
+        // 버튼 자체는 항상 붙어 있어도 안전하다(요청 명세 5.3 진입 경로: "메인 화면의 개화 일러스트 탭"
+        // 대신 유대 게이지 탭으로 대체 — 스프라이트 탭은 이미 터치/유대 획득 제스처로 쓰이고 있어
+        // 겹치면 혼란스럽기 때문).
+        Button barButton = barGO.GetComponent<Button>();
+        if (barButton == null) barButton = barGO.AddComponent<Button>();
+        barButton.targetGraphic = barTrack;
+        barButton.transition = Selectable.Transition.None; // 게이지 색이 버튼 상태색으로 덮이지 않게
+
         Transform fillTr = barGO.transform.Find("Fill");
         GameObject fillGO = (fillTr != null) ? fillTr.gameObject : new GameObject("Fill");
         fillGO.transform.SetParent(barGO.transform, false);
@@ -303,6 +331,22 @@ public static class PCLayoutBuilder
         fillImg.type  = Image.Type.Filled;
         fillImg.fillMethod = Image.FillMethod.Horizontal;
         fillImg.fillAmount = 0.01f;
+
+        // 2-1. UnreadBadge (안 읽은 메모리얼 표시 — 바 우측 상단에 작게 겹치는 점 하나, 기본 비활성)
+        Transform badgeTr = barGO.transform.Find("UnreadBadge");
+        GameObject badgeGO = (badgeTr != null) ? badgeTr.gameObject : new GameObject("UnreadBadge");
+        badgeGO.transform.SetParent(barGO.transform, false);
+        RectTransform badgeRT = badgeGO.GetComponent<RectTransform>();
+        if (badgeRT == null) badgeRT = badgeGO.AddComponent<RectTransform>();
+        badgeRT.anchorMin = new Vector2(1f, 1f);
+        badgeRT.anchorMax = new Vector2(1f, 1f);
+        badgeRT.pivot = new Vector2(0.5f, 0.5f);
+        badgeRT.sizeDelta = new Vector2(16f, 16f);
+        badgeRT.anchoredPosition = new Vector2(-2f, 2f);
+        Image badgeImg = badgeGO.GetComponent<Image>();
+        if (badgeImg == null) badgeImg = badgeGO.AddComponent<Image>();
+        badgeImg.color = new Color(1f, 0.85f, 0.3f, 1f); // 골드빛 — 레벨업 팝업과 동일 강조색
+        badgeGO.SetActive(false);
 
         // 3. AffectionValueText
         Transform valTr = statusUI.transform.Find("AffectionValueText");
@@ -519,6 +563,54 @@ public static class PCLayoutBuilder
                   Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
 
         return button;
+    }
+
+    /// <summary>
+    /// 숫자만 입력받는 TMP_InputField를 만든다(도감 이미지 뷰어의 확대율 직접 입력용).
+    /// TMP_InputField는 Text Area(RectMask2D) 안에 Placeholder/Text 두 개의 TextMeshProUGUI가 필요한
+    /// 표준 구조라, 여기서 한 번만 조립해두고 재사용한다.
+    /// </summary>
+    static TMP_InputField CreateNumericInputField(Transform parent, string name, string placeholderText, TMP_FontAsset font)
+    {
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        go.AddComponent<RectTransform>();
+
+        Image bg = go.AddComponent<Image>();
+        bg.color = new Color(0.1f, 0.1f, 0.14f, 1f);
+
+        TMP_InputField input = go.AddComponent<TMP_InputField>();
+
+        GameObject textAreaGO = new GameObject("Text Area");
+        textAreaGO.transform.SetParent(go.transform, false);
+        RectTransform textAreaRT = textAreaGO.AddComponent<RectTransform>();
+        textAreaRT.anchorMin = Vector2.zero;
+        textAreaRT.anchorMax = Vector2.one;
+        textAreaRT.offsetMin = new Vector2(8f, 2f);
+        textAreaRT.offsetMax = new Vector2(-8f, -2f);
+        textAreaGO.AddComponent<RectMask2D>();
+
+        GameObject placeholderGO = new GameObject("Placeholder");
+        placeholderGO.transform.SetParent(textAreaGO.transform, false);
+        SetupText(placeholderGO, placeholderText, font, 16f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        TMP_Text placeholderTmp = placeholderGO.GetComponent<TMP_Text>();
+        placeholderTmp.color = new Color(1f, 1f, 1f, 0.4f);
+        placeholderTmp.fontStyle = FontStyles.Italic;
+
+        GameObject textGO = new GameObject("Text");
+        textGO.transform.SetParent(textAreaGO.transform, false);
+        SetupText(textGO, "", font, 16f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        TMP_Text textTmp = textGO.GetComponent<TMP_Text>();
+
+        input.textViewport = textAreaRT;
+        input.textComponent = textTmp;
+        input.placeholder = placeholderTmp;
+        input.contentType = TMP_InputField.ContentType.DecimalNumber;
+        input.characterLimit = 6;
+
+        return input;
     }
 
     // ── FlowerUpgradePanel 생성 (꽃 탭: 정렬/단위 선택 + 보유 꽃 전체 스크롤 목록) ──
@@ -873,6 +965,8 @@ public static class PCLayoutBuilder
             {
                 Image fill = bar.Find("Fill")?.GetComponent<Image>();
                 uiMgr.affectionBarFillImage = fill;
+                uiMgr.affectionBarButton = bar.GetComponent<Button>();
+                uiMgr.unreadMemorialBadge = bar.Find("UnreadBadge")?.gameObject;
             }
         }
     }
@@ -979,13 +1073,20 @@ public static class PCLayoutBuilder
         popup.bloomedFlowersSection   = bloomSection;
         popup.closeButton             = closeButton;
 
-        popupRoot.SetActive(false); // Awake에서도 꺼지지만, 재생성 직후에도 안 보이도록 명시
+        // popupRoot는 절대 SetActive(false)로 끄지 않는다 — 비활성 오브젝트는 Awake/Start가 스킵되므로
+        // Start()의 SaveManager 이벤트 구독이 영영 실행되지 않는다. 숨김은 OfflineSummaryPopup.Awake()가
+        // CanvasGroup으로 처리한다(이 AddComponent 호출 시점에 에디터에서도 즉시 실행됨).
     }
 
-    // ── FlowerDexPanel 생성 (보유 꽃 그리드 팝업, 화면 전체 오버레이) ──────
+    // ── FlowerDexPanel 생성 (전체 꽃 그리드 팝업 — 미보유 포함, 화면 전체를 꽉 채움) ──────
     // Canvas 최상위 오버레이로 둔다(사이드바 내부가 아님) — LeftSidebar/RightSidebar는
     // PCLayoutController.hideSidebarsOnMobile로 모바일에서 숨겨지므로, 사이드바 안에 두면
     // 모바일에서 도감 자체에 접근할 수 없게 된다.
+    //
+    // 모바일/PC 두 레이아웃을 전부 만들어 두고, 어느 쪽을 보여줄지는 런타임에
+    // FlowerDexPanel.Awake()가 Application.isMobilePlatform으로 한 번만 고른다
+    // (PCLayoutController가 사이드바를 켜고 끌 때 쓰는 것과 동일한 신호 — 프로젝트 전체가
+    // PC/모바일을 구분하는 기준을 하나로 통일한다).
     static FlowerDexPanel BuildFlowerDexPanel(Transform canvasTransform)
     {
         Transform existing = canvasTransform.Find("FlowerDexPanel");
@@ -1002,37 +1103,24 @@ public static class PCLayoutBuilder
         rootRT.offsetMax = Vector2.zero;
 
         Image dim = panelRoot.AddComponent<Image>();
-        dim.color = new Color(0f, 0f, 0f, 0.75f);
+        dim.color = new Color(0f, 0f, 0f, 0.92f);
 
-        // Card (중앙 고정 카드)
-        GameObject card = new GameObject("Card");
-        card.transform.SetParent(panelRoot.transform, false);
-        RectTransform cardRT = card.AddComponent<RectTransform>();
-        cardRT.anchorMin = new Vector2(0.5f, 0.5f);
-        cardRT.anchorMax = new Vector2(0.5f, 0.5f);
-        cardRT.pivot = new Vector2(0.5f, 0.5f);
-        cardRT.anchoredPosition = Vector2.zero;
-        cardRT.sizeDelta = new Vector2(560f, 700f);
-
-        Image cardBg = card.AddComponent<Image>();
-        cardBg.color = new Color(0.14f, 0.1f, 0.14f, 0.97f);
-
-        // Header (제목 + 닫기 버튼)
+        // ── Header (제목 + 닫기, 모바일/PC 공용, 화면 최상단 전체 폭) ──
         GameObject header = new GameObject("Header");
-        header.transform.SetParent(card.transform, false);
+        header.transform.SetParent(panelRoot.transform, false);
         RectTransform hrt = header.AddComponent<RectTransform>();
         hrt.anchorMin = new Vector2(0f, 1f);
         hrt.anchorMax = new Vector2(1f, 1f);
         hrt.pivot = new Vector2(0.5f, 1f);
-        hrt.sizeDelta = new Vector2(0f, 55f);
+        hrt.sizeDelta = new Vector2(0f, DEX_HEADER_HEIGHT);
 
         Image hImg = header.AddComponent<Image>();
         hImg.color = new Color(0.15f, 0.16f, 0.22f, 1f);
 
         GameObject title = new GameObject("Title");
         title.transform.SetParent(header.transform, false);
-        SetupText(title, "꽃 도감", font, 24f, TextAlignmentOptions.Left,
-                  Vector2.zero, Vector2.one, new Vector2(20f, 0f), new Vector2(-70f, 0f));
+        SetupText(title, "꽃 도감", font, 28f, TextAlignmentOptions.Left,
+                  Vector2.zero, Vector2.one, new Vector2(24f, 0f), new Vector2(-80f, 0f));
 
         GameObject closeGO = new GameObject("CloseButton");
         closeGO.transform.SetParent(header.transform, false);
@@ -1040,8 +1128,8 @@ public static class PCLayoutBuilder
         closeRT.anchorMin = new Vector2(1f, 0f);
         closeRT.anchorMax = new Vector2(1f, 1f);
         closeRT.pivot = new Vector2(1f, 0.5f);
-        closeRT.sizeDelta = new Vector2(55f, 0f);
-        closeRT.anchoredPosition = new Vector2(-8f, 0f);
+        closeRT.sizeDelta = new Vector2(60f, 0f);
+        closeRT.anchoredPosition = new Vector2(-10f, 0f);
 
         Image closeBg = closeGO.AddComponent<Image>();
         closeBg.color = new Color(1f, 0.35f, 0.62f, 1f);
@@ -1050,17 +1138,301 @@ public static class PCLayoutBuilder
 
         GameObject closeLabelGO = new GameObject("Label");
         closeLabelGO.transform.SetParent(closeGO.transform, false);
-        SetupText(closeLabelGO, "X", font, 20f, TextAlignmentOptions.Center,
+        SetupText(closeLabelGO, "X", font, 22f, TextAlignmentOptions.Center,
                   Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
 
-        // Scroll View + GridLayoutGroup (보유 꽃 그리드)
-        GameObject scrollGO = new GameObject("Scroll View");
-        scrollGO.transform.SetParent(card.transform, false);
+        // ── 본문 영역 (헤더 아래 전체) — 모바일/PC 레이아웃 루트 2개. 화면을 꽉 채우고,
+        //    Awake() 시점에 플랫폼에 맞는 하나만 SetActive(true)로 남는다. ──
+        GameObject mobileRoot = BuildDexLayoutRoot(panelRoot.transform, "MobileLayoutRoot");
+        GameObject pcRoot = BuildDexLayoutRoot(panelRoot.transform, "PCLayoutRoot");
+
+        // ── 모바일: 그리드(세로 스크롤) + 상세(아이콘 위 / 텍스트 아래, 세로 스크롤) ──
+        RectTransform mobileGrid = BuildDexScrollGrid(mobileRoot.transform, new Vector2(170f, 170f));
+
+        GameObject mobileDetail = BuildDexDetailRoot(mobileRoot.transform);
+
+        GameObject mobileScroll = new GameObject("Scroll View");
+        mobileScroll.transform.SetParent(mobileDetail.transform, false);
+        RectTransform msRT = mobileScroll.AddComponent<RectTransform>();
+        msRT.anchorMin = Vector2.zero;
+        msRT.anchorMax = Vector2.one;
+        msRT.offsetMin = Vector2.zero;
+        msRT.offsetMax = new Vector2(0f, -76f);
+        RectTransform mobileDetailContent = SetupVerticalScrollContent(mobileScroll, new RectOffset(20, 20, 20, 20));
+
+        GameObject mobileIconGO = new GameObject("Icon");
+        mobileIconGO.transform.SetParent(mobileDetailContent.transform, false);
+        mobileIconGO.AddComponent<RectTransform>();
+        LayoutElement mIconLE = mobileIconGO.AddComponent<LayoutElement>();
+        mIconLE.preferredHeight = 320f;
+        Image mobileDetailIconImg = mobileIconGO.AddComponent<Image>();
+        mobileDetailIconImg.preserveAspect = true;
+
+        TMP_Text mobileDetailNameText = CreateDexDetailText(mobileDetailContent.transform, font, 32f, TextAlignmentOptions.Center, true);
+        TMP_Text mobileDetailDescText = CreateDexDetailText(mobileDetailContent.transform, font, 18f, TextAlignmentOptions.Center, false);
+        (Image[] mobileGrowthIcons, Button[] mobileGrowthButtons) = BuildGrowthGallery(mobileDetailContent.transform);
+        TMP_Text mobileDetailInfoText = CreateDexDetailText(mobileDetailContent.transform, font, 18f, TextAlignmentOptions.Left, false);
+        TMP_Text mobileDetailPassiveText = CreateDexDetailText(mobileDetailContent.transform, font, 16f, TextAlignmentOptions.Left, false);
+
+        (Button mobilePrev, Button mobileBack, Button mobileJump, Button mobileNext, Button mobileMemorial) = BuildDexDetailButtonBar(mobileDetail.transform, font);
+
+        mobileDetail.SetActive(false);
+
+        // ── PC: 그리드(다열, 넓게) + 상세(좌: 스탠딩 이미지 / 우: 데이터·소개말 — 마케팅용 캐릭터 소개 화면 형태) ──
+        RectTransform pcGrid = BuildDexScrollGrid(pcRoot.transform, new Vector2(200f, 200f));
+
+        GameObject pcDetail = BuildDexDetailRoot(pcRoot.transform);
+
+        GameObject pcLeftPane = new GameObject("LeftPane");
+        pcLeftPane.transform.SetParent(pcDetail.transform, false);
+        RectTransform plRT = pcLeftPane.AddComponent<RectTransform>();
+        plRT.anchorMin = new Vector2(0f, 0f);
+        plRT.anchorMax = new Vector2(0.45f, 1f);
+        plRT.offsetMin = Vector2.zero;
+        plRT.offsetMax = Vector2.zero;
+
+        // ── IconScrollView: 드래그로 패닝, 휠/버튼으로 확대·축소. ScrollRect의 scrollSensitivity를
+        // 0으로 꺼서 휠의 "자체 패닝" 반응을 죽이고, 대신 ScrollWheelZoomHandler가 같은 휠 이벤트를
+        // 받아 FlowerDexPanel의 확대/축소로 재활용한다(드래그 패닝 자체는 ScrollRect 그대로 동작).
+        // 아이콘의 Image.preserveAspect는 FlowerDexPanel이 sizeDelta로 직접 확대율을 계산하는 로직과
+        // 겹치므로 꺼둔다.
+        GameObject iconScrollGO = new GameObject("IconScrollView");
+        iconScrollGO.transform.SetParent(pcLeftPane.transform, false);
+        RectTransform isRT = iconScrollGO.AddComponent<RectTransform>();
+        isRT.anchorMin = new Vector2(0.04f, 0.28f);
+        isRT.anchorMax = new Vector2(0.96f, 0.95f);
+        isRT.offsetMin = Vector2.zero;
+        isRT.offsetMax = Vector2.zero;
+
+        ScrollRect iconSR = iconScrollGO.AddComponent<ScrollRect>();
+        iconSR.horizontal = true;
+        iconSR.vertical = true;
+        iconSR.scrollSensitivity = 0f;
+
+        GameObject iconViewportGO = new GameObject("Viewport");
+        iconViewportGO.transform.SetParent(iconScrollGO.transform, false);
+        RectTransform ivRT = iconViewportGO.AddComponent<RectTransform>();
+        ivRT.anchorMin = Vector2.zero;
+        ivRT.anchorMax = Vector2.one;
+        ivRT.offsetMin = Vector2.zero;
+        ivRT.offsetMax = Vector2.zero;
+        Image ivImg = iconViewportGO.AddComponent<Image>();
+        ivImg.color = new Color(0f, 0f, 0f, 0.15f); // 확대했을 때 이미지 바깥 경계를 눈으로 알 수 있게
+        Mask ivMask = iconViewportGO.AddComponent<Mask>();
+        ivMask.showMaskGraphic = true;
+        ScrollWheelZoomHandler iconZoomHandler = iconViewportGO.AddComponent<ScrollWheelZoomHandler>();
+
+        GameObject iconContentGO = new GameObject("Content");
+        iconContentGO.transform.SetParent(iconViewportGO.transform, false);
+        RectTransform icRT = iconContentGO.AddComponent<RectTransform>();
+        icRT.anchorMin = new Vector2(0.5f, 0.5f);
+        icRT.anchorMax = new Vector2(0.5f, 0.5f);
+        icRT.pivot = new Vector2(0.5f, 0.5f);
+        icRT.anchoredPosition = Vector2.zero;
+        icRT.sizeDelta = Vector2.zero; // 런타임에 FlowerDexPanel이 확대율에 맞춰 갱신
+
+        GameObject pcIconGO = new GameObject("StandingIcon");
+        pcIconGO.transform.SetParent(iconContentGO.transform, false);
+        RectTransform piRT = pcIconGO.AddComponent<RectTransform>();
+        piRT.anchorMin = new Vector2(0.5f, 0.5f);
+        piRT.anchorMax = new Vector2(0.5f, 0.5f);
+        piRT.pivot = new Vector2(0.5f, 0.5f);
+        piRT.anchoredPosition = Vector2.zero;
+        Image pcDetailIconImg = pcIconGO.AddComponent<Image>();
+        pcDetailIconImg.preserveAspect = false;
+
+        iconSR.viewport = ivRT;
+        iconSR.content = icRT;
+
+        // ── 확대/축소 컨트롤 바 ("-" / 직접 입력(%) / "100%"(PPU 기준 실제 크기로 점프) / "+") ──
+        GameObject zoomBarGO = new GameObject("ZoomControlBar");
+        zoomBarGO.transform.SetParent(pcLeftPane.transform, false);
+        RectTransform zbRT = zoomBarGO.AddComponent<RectTransform>();
+        zbRT.anchorMin = new Vector2(0f, 0.18f);
+        zbRT.anchorMax = new Vector2(1f, 0.28f);
+        zbRT.offsetMin = Vector2.zero;
+        zbRT.offsetMax = Vector2.zero;
+
+        HorizontalLayoutGroup zoomLayout = zoomBarGO.AddComponent<HorizontalLayoutGroup>();
+        zoomLayout.childForceExpandWidth = true;
+        zoomLayout.childForceExpandHeight = true;
+        zoomLayout.childControlWidth = true;
+        zoomLayout.childControlHeight = true;
+        zoomLayout.spacing = 8f;
+        zoomLayout.padding = new RectOffset(8, 8, 4, 4);
+
+        Button pcZoomOutButton = CreateTabButton(zoomBarGO.transform, "ZoomOutButton", "-", font);
+
+        // 원하는 배율을 직접 숫자로 입력할 수 있는 필드 — +/-/휠은 25%씩만 계단식으로 움직여서
+        // 정확한 값(예: 정확히 137%)을 맞추기 어렵다는 문제를 해결한다. Enter/포커스 아웃 시 적용.
+        TMP_InputField pcZoomInputField = CreateNumericInputField(zoomBarGO.transform, "ZoomInputField", "%", font);
+        LayoutElement zoomInputLE = pcZoomInputField.gameObject.AddComponent<LayoutElement>();
+        zoomInputLE.preferredWidth = 64f;
+
+        Button pcZoomResetButton = CreateTabButton(zoomBarGO.transform, "ZoomResetButton", "100%", font);
+        Button pcZoomInButton = CreateTabButton(zoomBarGO.transform, "ZoomInButton", "+", font);
+
+        // ── PPU 저장 버튼(에디터 전용 개발자 도구) ──────────────────────────────
+        // 위 확대/축소로 화면상 크기를 원하는 만큼 맞춘 뒤 이 버튼을 누르면, 그 배율을 스프라이트의
+        // 실제 Pixels Per Unit 값으로 역산해서 .meta 에셋에 영구 저장한다(FlowerDexPanel의
+        // SaveCurrentZoomAsAssetPpu, #if UNITY_EDITOR 안에서만 컴파일됨). 실제 빌드에는 이 로직 자체가
+        // 아예 포함되지 않으므로, FlowerDexPanel.Start()가 빌드에서는 이 버튼을 자동으로 숨긴다 —
+        // 플레이어가 접근할 방법이 원천적으로 없다.
+        GameObject ppuSaveGO = new GameObject("PpuSaveButton");
+        ppuSaveGO.transform.SetParent(pcLeftPane.transform, false);
+        RectTransform ppuSaveRT = ppuSaveGO.AddComponent<RectTransform>();
+        ppuSaveRT.anchorMin = new Vector2(0.15f, 0.1f);
+        ppuSaveRT.anchorMax = new Vector2(0.85f, 0.18f);
+        ppuSaveRT.offsetMin = Vector2.zero;
+        ppuSaveRT.offsetMax = Vector2.zero;
+
+        Image ppuSaveBg = ppuSaveGO.AddComponent<Image>();
+        ppuSaveBg.color = new Color(0.55f, 0.3f, 0.15f, 1f); // 경고성 주황빛 — 확대/축소 버튼과 구분되는 "영구 반영" 액션
+        Button pcPpuSaveButton = ppuSaveGO.AddComponent<Button>();
+        pcPpuSaveButton.targetGraphic = ppuSaveBg;
+
+        GameObject ppuSaveLabelGO = new GameObject("Label");
+        ppuSaveLabelGO.transform.SetParent(ppuSaveGO.transform, false);
+        SetupText(ppuSaveLabelGO, "이 크기로 에셋에 저장 (에디터 전용)", font, 14f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, new Vector2(4f, 0f), new Vector2(-4f, 0f));
+
+        // 이미지 크기 + 확대율 안내 텍스트 (항상 표시 — 에셋 원본 해상도 확인용)
+        GameObject iconSizeGO = new GameObject("IconSizeText");
+        iconSizeGO.transform.SetParent(pcLeftPane.transform, false);
+        SetupText(iconSizeGO, "-", font, 14f, TextAlignmentOptions.Center,
+                  new Vector2(0f, 0f), new Vector2(1f, 0.1f), new Vector2(8f, 0f), new Vector2(-8f, 0f));
+        TMP_Text pcIconSizeText = iconSizeGO.GetComponent<TMP_Text>();
+        pcIconSizeText.color = new Color(0.8f, 0.78f, 0.8f, 1f);
+
+        GameObject pcRightPane = new GameObject("RightPane");
+        pcRightPane.transform.SetParent(pcDetail.transform, false);
+        RectTransform prpRT = pcRightPane.AddComponent<RectTransform>();
+        prpRT.anchorMin = new Vector2(0.45f, 0f);
+        prpRT.anchorMax = new Vector2(1f, 1f);
+        prpRT.offsetMin = Vector2.zero;
+        prpRT.offsetMax = Vector2.zero;
+
+        Image pcRightBg = pcRightPane.AddComponent<Image>();
+        pcRightBg.color = new Color(0f, 0f, 0f, 0.2f);
+
+        GameObject pcScroll = new GameObject("Scroll View");
+        pcScroll.transform.SetParent(pcRightPane.transform, false);
+        RectTransform psRT = pcScroll.AddComponent<RectTransform>();
+        psRT.anchorMin = Vector2.zero;
+        psRT.anchorMax = Vector2.one;
+        psRT.offsetMin = Vector2.zero;
+        psRT.offsetMax = new Vector2(0f, -84f);
+        RectTransform pcDetailContent = SetupVerticalScrollContent(pcScroll, new RectOffset(28, 28, 28, 20));
+
+        TMP_Text pcDetailNameText = CreateDexDetailText(pcDetailContent.transform, font, 36f, TextAlignmentOptions.Left, true);
+        TMP_Text pcDetailDescText = CreateDexDetailText(pcDetailContent.transform, font, 19f, TextAlignmentOptions.Left, false);
+        (Image[] pcGrowthIcons, Button[] pcGrowthButtons) = BuildGrowthGallery(pcDetailContent.transform);
+        TMP_Text pcDetailInfoText = CreateDexDetailText(pcDetailContent.transform, font, 19f, TextAlignmentOptions.Left, false);
+        TMP_Text pcDetailPassiveText = CreateDexDetailText(pcDetailContent.transform, font, 17f, TextAlignmentOptions.Left, false);
+
+        (Button pcPrev, Button pcBack, Button pcJump, Button pcNext, Button pcMemorial) = BuildDexDetailButtonBar(pcRightPane.transform, font);
+
+        pcDetail.SetActive(false);
+
+        // ── FlowerDexPanel 컴포넌트 연결 ──
+        // closeButton도 openButton과 동일한 이유로 필드만 연결한다(onClick.AddListener 직접 호출 금지 —
+        // 에디터 스크립트에서 붙인 리스너는 씬에 저장되지 않는다). 실제 연결은 FlowerDexPanel.Start()가 한다.
+        FlowerDexPanel dexPanel = panelRoot.AddComponent<FlowerDexPanel>();
+        dexPanel.root = panelRoot;
+        dexPanel.itemPrefab = GetOrCreateFlowerDexItemPrefab();
+        dexPanel.closeButton = closeButton;
+
+        dexPanel.mobileLayoutRoot = mobileRoot;
+        dexPanel.mobileGridContent = mobileGrid;
+        dexPanel.mobileDetailRoot = mobileDetail;
+        dexPanel.mobileDetailIcon = mobileDetailIconImg;
+        dexPanel.mobileDetailName = mobileDetailNameText;
+        dexPanel.mobileDetailDescription = mobileDetailDescText;
+        dexPanel.mobileGrowthStageIcons = mobileGrowthIcons;
+        dexPanel.mobileGrowthStageButtons = mobileGrowthButtons;
+        dexPanel.mobileDetailInfo = mobileDetailInfoText;
+        dexPanel.mobileDetailPassives = mobileDetailPassiveText;
+        dexPanel.mobileJumpButton = mobileJump;
+        dexPanel.mobileBackButton = mobileBack;
+        dexPanel.mobilePrevButton = mobilePrev;
+        dexPanel.mobileNextButton = mobileNext;
+        dexPanel.mobileMemorialButton = mobileMemorial;
+
+        dexPanel.pcLayoutRoot = pcRoot;
+        dexPanel.pcGridContent = pcGrid;
+        dexPanel.pcDetailRoot = pcDetail;
+        dexPanel.pcDetailIcon = pcDetailIconImg;
+        dexPanel.pcDetailName = pcDetailNameText;
+        dexPanel.pcDetailDescription = pcDetailDescText;
+        dexPanel.pcGrowthStageIcons = pcGrowthIcons;
+        dexPanel.pcGrowthStageButtons = pcGrowthButtons;
+        dexPanel.pcDetailInfo = pcDetailInfoText;
+        dexPanel.pcDetailPassives = pcDetailPassiveText;
+        dexPanel.pcJumpButton = pcJump;
+        dexPanel.pcBackButton = pcBack;
+        dexPanel.pcPrevButton = pcPrev;
+        dexPanel.pcNextButton = pcNext;
+        dexPanel.pcMemorialButton = pcMemorial;
+        dexPanel.pcDetailIconContent = icRT;
+        dexPanel.pcDetailIconViewport = ivRT;
+        dexPanel.pcDetailIconSizeText = pcIconSizeText;
+        dexPanel.pcZoomInButton = pcZoomInButton;
+        dexPanel.pcZoomOutButton = pcZoomOutButton;
+        dexPanel.pcZoomResetButton = pcZoomResetButton;
+        dexPanel.pcZoomInputField = pcZoomInputField;
+        dexPanel.pcIconScrollZoomHandler = iconZoomHandler;
+        dexPanel.pcPpuSaveButton = pcPpuSaveButton;
+
+        // panelRoot는 절대 SetActive(false)로 끄지 않는다 — 비활성 오브젝트는 Awake/Start가 스킵되므로
+        // Start()의 openButton.onClick.AddListener가 영영 실행되지 않는다("버튼은 눌리는데 반응 없음" 버그의
+        // 원인). 숨김은 FlowerDexPanel.Awake()가 CanvasGroup으로 처리한다.
+        return dexPanel;
+    }
+
+    /// <summary> 헤더 아래 전체 영역을 채우는 레이아웃 루트(모바일/PC 공용 뼈대) 하나를 만든다. </summary>
+    static GameObject BuildDexLayoutRoot(Transform parent, string name)
+    {
+        GameObject root = new GameObject(name);
+        root.transform.SetParent(parent, false);
+        RectTransform rt = root.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = new Vector2(0f, -DEX_HEADER_HEIGHT);
+
+        Image bg = root.AddComponent<Image>();
+        bg.color = new Color(0.1f, 0.08f, 0.11f, 0.98f);
+
+        return root;
+    }
+
+    /// <summary> 그리드/상세 두 상태를 담을 부모 안에, 화면 전체를 덮는 "DetailView" 오버레이 루트를 만든다. </summary>
+    static GameObject BuildDexDetailRoot(Transform parent)
+    {
+        GameObject detail = new GameObject("DetailView");
+        detail.transform.SetParent(parent, false);
+        RectTransform rt = detail.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        Image bg = detail.AddComponent<Image>();
+        bg.color = new Color(0.1f, 0.08f, 0.11f, 1f);
+
+        return detail;
+    }
+
+    /// <summary> 도감 그리드(스크롤+GridLayoutGroup)를 parent에 꽉 채워 만들고 Content RectTransform을 반환한다. </summary>
+    static RectTransform BuildDexScrollGrid(Transform parent, Vector2 cellSize)
+    {
+        GameObject scrollGO = new GameObject("GridView");
+        scrollGO.transform.SetParent(parent, false);
         RectTransform srt = scrollGO.AddComponent<RectTransform>();
         srt.anchorMin = Vector2.zero;
         srt.anchorMax = Vector2.one;
         srt.offsetMin = Vector2.zero;
-        srt.offsetMax = new Vector2(0f, -55f);
+        srt.offsetMax = Vector2.zero;
 
         Image scrollImg = scrollGO.AddComponent<Image>();
         scrollImg.color = new Color(0f, 0f, 0f, 0f);
@@ -1092,9 +1464,9 @@ public static class PCLayoutBuilder
         crt.sizeDelta = Vector2.zero;
 
         GridLayoutGroup grid = content.AddComponent<GridLayoutGroup>();
-        grid.cellSize = new Vector2(160f, 160f);
-        grid.spacing = new Vector2(12f, 12f);
-        grid.padding = new RectOffset(16, 16, 16, 16);
+        grid.cellSize = cellSize;
+        grid.spacing = new Vector2(14f, 14f);
+        grid.padding = new RectOffset(20, 20, 20, 20);
         grid.childAlignment = TextAnchor.UpperLeft;
 
         ContentSizeFitter csf = content.AddComponent<ContentSizeFitter>();
@@ -1103,17 +1475,385 @@ public static class PCLayoutBuilder
         sr.viewport = vprt;
         sr.content = crt;
 
-        // ── FlowerDexPanel 컴포넌트 연결 ──
-        // closeButton도 openButton과 동일한 이유로 필드만 연결한다(onClick.AddListener 직접 호출 금지 —
-        // 에디터 스크립트에서 붙인 리스너는 씬에 저장되지 않는다). 실제 연결은 FlowerDexPanel.Start()가 한다.
-        FlowerDexPanel dexPanel = panelRoot.AddComponent<FlowerDexPanel>();
-        dexPanel.root = panelRoot;
-        dexPanel.content = crt;
-        dexPanel.itemPrefab = GetOrCreateFlowerDexItemPrefab();
-        dexPanel.closeButton = closeButton;
+        return crt;
+    }
 
-        panelRoot.SetActive(false);
-        return dexPanel;
+    /// <summary>
+    /// 이미 RectTransform이 배치된 scrollRoot 위에 세로 스크롤 텍스트 영역
+    /// (Viewport + Content(VerticalLayoutGroup+ContentSizeFitter))을 구성하고 Content를 반환한다.
+    /// 상세 화면(이름/소개/정보/패시브)처럼 내용 길이가 꽃마다 달라지는 곳에 쓴다.
+    /// </summary>
+    static RectTransform SetupVerticalScrollContent(GameObject scrollRoot, RectOffset padding)
+    {
+        Image scrollImg = scrollRoot.AddComponent<Image>();
+        scrollImg.color = new Color(0f, 0f, 0f, 0f);
+
+        ScrollRect sr = scrollRoot.AddComponent<ScrollRect>();
+        sr.horizontal = false;
+        sr.vertical = true;
+        sr.scrollSensitivity = 35f;
+
+        GameObject viewport = new GameObject("Viewport");
+        viewport.transform.SetParent(scrollRoot.transform, false);
+        RectTransform vprt = viewport.AddComponent<RectTransform>();
+        vprt.anchorMin = Vector2.zero;
+        vprt.anchorMax = Vector2.one;
+        vprt.offsetMin = Vector2.zero;
+        vprt.offsetMax = Vector2.zero;
+        Image vpImg = viewport.AddComponent<Image>();
+        vpImg.color = new Color(1f, 1f, 1f, 0.01f);
+        Mask mask = viewport.AddComponent<Mask>();
+        mask.showMaskGraphic = false;
+
+        GameObject content = new GameObject("Content");
+        content.transform.SetParent(viewport.transform, false);
+        RectTransform crt = content.AddComponent<RectTransform>();
+        crt.anchorMin = new Vector2(0f, 1f);
+        crt.anchorMax = new Vector2(1f, 1f);
+        crt.pivot = new Vector2(0f, 1f);
+        crt.anchoredPosition = Vector2.zero;
+        crt.sizeDelta = Vector2.zero;
+
+        VerticalLayoutGroup vlg = content.AddComponent<VerticalLayoutGroup>();
+        vlg.childForceExpandWidth = true;
+        vlg.childForceExpandHeight = false;
+        vlg.childControlWidth = true;
+        vlg.childControlHeight = true;
+        vlg.spacing = 14f;
+        vlg.padding = padding;
+
+        ContentSizeFitter csf = content.AddComponent<ContentSizeFitter>();
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        sr.viewport = vprt;
+        sr.content = crt;
+
+        return crt;
+    }
+
+    /// <summary>
+    /// "역대 성장 과정" 갤러리(씨앗→발아→성장→개화 4칸)를 세로 스크롤 콘텐츠 안에 가로로 만들고,
+    /// 4개의 Image + 4개의 Button을 반환한다. 각 칸을 클릭하면 FlowerDexPanel이 좌측(모바일은 상단)
+    /// 대표 이미지를 그 단계로 바꾼다. 실제 스프라이트/틴트 채우기는 FlowerDexPanel.UpdateGrowthGallery/
+    /// SelectGrowthStage가 인덱스 기반으로 담당한다 — 나중에 칸 수를 바꾸려면 이 4를 바꾸고 그쪽
+    /// stageSprites 배열만 맞춰주면 된다(필드 하나하나를 새로 연결할 필요 없음).
+    /// </summary>
+    static (Image[] icons, Button[] buttons) BuildGrowthGallery(Transform parent)
+    {
+        GameObject row = new GameObject("GrowthGallery");
+        row.transform.SetParent(parent, false);
+        LayoutElement le = row.AddComponent<LayoutElement>();
+        le.preferredHeight = 90f;
+
+        HorizontalLayoutGroup layout = row.AddComponent<HorizontalLayoutGroup>();
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = true;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.spacing = 10f;
+
+        const int STAGE_COUNT = 4; // 씨앗/발아/성장/개화
+        Image[] icons = new Image[STAGE_COUNT];
+        Button[] buttons = new Button[STAGE_COUNT];
+        for (int i = 0; i < STAGE_COUNT; i++)
+        {
+            GameObject iconGO = new GameObject($"Stage{i}");
+            iconGO.transform.SetParent(row.transform, false);
+            iconGO.AddComponent<RectTransform>();
+            Image img = iconGO.AddComponent<Image>();
+            img.preserveAspect = true;
+            Button btn = iconGO.AddComponent<Button>();
+            btn.targetGraphic = img;
+            icons[i] = img;
+            buttons[i] = btn;
+        }
+
+        return (icons, buttons);
+    }
+
+    /// <summary> 상세 화면 텍스트 한 줄(이름/소개/정보/패시브 공용)을 세로 스크롤 콘텐츠 안에 만든다. </summary>
+    static TMP_Text CreateDexDetailText(Transform parent, TMP_FontAsset font, float fontSize, TextAlignmentOptions align, bool bold)
+    {
+        GameObject go = new GameObject("Text");
+        go.transform.SetParent(parent, false);
+        SetupText(go, "-", font, fontSize, align, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        TMP_Text tmp = go.GetComponent<TMP_Text>();
+        if (bold) tmp.fontStyle = FontStyles.Bold;
+        tmp.color = new Color(0.92f, 0.9f, 0.92f, 1f);
+        return tmp;
+    }
+
+    /// <summary> 상세 화면 하단 버튼 바("이전/다음" / "메모리얼" / "목록으로/이 꽃으로 이동")를 parent 하단에 만든다. </summary>
+    static (Button prev, Button back, Button jump, Button next, Button memorial) BuildDexDetailButtonBar(Transform parent, TMP_FontAsset font)
+    {
+        GameObject bar = new GameObject("ButtonBar");
+        bar.transform.SetParent(parent, false);
+        RectTransform barRT = bar.AddComponent<RectTransform>();
+        barRT.anchorMin = new Vector2(0f, 0f);
+        barRT.anchorMax = new Vector2(1f, 0f);
+        barRT.pivot = new Vector2(0.5f, 0f);
+        barRT.sizeDelta = new Vector2(0f, 180f); // 행 3개(이전/다음, 메모리얼, 목록으로/이동) — 기존 124에서 56 늘림
+
+        VerticalLayoutGroup barLayout = bar.AddComponent<VerticalLayoutGroup>();
+        barLayout.childForceExpandWidth = true;
+        barLayout.childForceExpandHeight = true;
+        barLayout.childControlWidth = true;
+        barLayout.childControlHeight = true;
+        barLayout.spacing = 8f;
+        barLayout.padding = new RectOffset(16, 16, 8, 12);
+
+        // 1행: 이전/다음 — 목록으로 안 돌아가고 도감 순서(FlowerManager.allFlowers)대로 옆 꽃 상세로 바로 이동.
+        GameObject navRow = new GameObject("NavRow");
+        navRow.transform.SetParent(bar.transform, false);
+        navRow.AddComponent<RectTransform>();
+        LayoutElement navRowLE = navRow.AddComponent<LayoutElement>();
+        navRowLE.preferredHeight = 48f;
+
+        HorizontalLayoutGroup navLayout = navRow.AddComponent<HorizontalLayoutGroup>();
+        navLayout.childForceExpandWidth = true;
+        navLayout.childForceExpandHeight = true;
+        navLayout.childControlWidth = true;
+        navLayout.childControlHeight = true;
+        navLayout.spacing = 12f;
+
+        Button prevButton = CreateTabButton(navRow.transform, "PrevButton", "이전", font);
+        Button nextButton = CreateTabButton(navRow.transform, "NextButton", "다음", font);
+
+        // 2행: 메모리얼 보기 — 유대로 해금한 회상을 본다. 미개화 꽃은 FlowerDexPanel.ShowDetail이
+        // interactable=false로 잠가둔다(유대 자체가 개화한 꽃에만 쌓이므로).
+        GameObject memorialGO = new GameObject("MemorialButton");
+        memorialGO.transform.SetParent(bar.transform, false);
+        LayoutElement memorialLE = memorialGO.AddComponent<LayoutElement>();
+        memorialLE.preferredHeight = 48f;
+        Image memorialBg = memorialGO.AddComponent<Image>();
+        memorialBg.color = new Color(1f, 0.85f, 0.3f, 1f); // 골드빛 — 레벨업 팝업/뱃지와 동일 강조색
+        Button memorialButton = memorialGO.AddComponent<Button>();
+        memorialButton.targetGraphic = memorialBg;
+        GameObject memorialLabelGO = new GameObject("Label");
+        memorialLabelGO.transform.SetParent(memorialGO.transform, false);
+        SetupText(memorialLabelGO, "메모리얼 보기", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        memorialLabelGO.GetComponent<TMP_Text>().color = new Color(0.15f, 0.13f, 0.05f, 1f); // 밝은 배경 위 어두운 글자
+
+        // 3행: 목록으로 / 이 꽃으로 이동 (기존과 동일)
+        GameObject actionRow = new GameObject("ActionRow");
+        actionRow.transform.SetParent(bar.transform, false);
+        actionRow.AddComponent<RectTransform>();
+        LayoutElement actionRowLE = actionRow.AddComponent<LayoutElement>();
+        actionRowLE.preferredHeight = 48f;
+
+        HorizontalLayoutGroup actionLayout = actionRow.AddComponent<HorizontalLayoutGroup>();
+        actionLayout.childForceExpandWidth = true;
+        actionLayout.childForceExpandHeight = true;
+        actionLayout.childControlWidth = true;
+        actionLayout.childControlHeight = true;
+        actionLayout.spacing = 12f;
+
+        GameObject backGO = new GameObject("BackButton");
+        backGO.transform.SetParent(actionRow.transform, false);
+        backGO.AddComponent<RectTransform>();
+        Image backBg = backGO.AddComponent<Image>();
+        backBg.color = new Color(0.3f, 0.3f, 0.35f, 1f);
+        Button backButton = backGO.AddComponent<Button>();
+        backButton.targetGraphic = backBg;
+        GameObject backLabelGO = new GameObject("Label");
+        backLabelGO.transform.SetParent(backGO.transform, false);
+        SetupText(backLabelGO, "목록으로", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        GameObject jumpGO = new GameObject("JumpButton");
+        jumpGO.transform.SetParent(actionRow.transform, false);
+        jumpGO.AddComponent<RectTransform>();
+        Image jumpBg = jumpGO.AddComponent<Image>();
+        jumpBg.color = new Color(1f, 0.35f, 0.62f, 1f);
+        Button jumpButton = jumpGO.AddComponent<Button>();
+        jumpButton.targetGraphic = jumpBg;
+        GameObject jumpLabelGO = new GameObject("Label");
+        jumpLabelGO.transform.SetParent(jumpGO.transform, false);
+        SetupText(jumpLabelGO, "이 꽃으로 이동", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        return (prevButton, backButton, jumpButton, nextButton, memorialButton);
+    }
+
+    // ── MemorialViewPanel 생성 (꽃 1개의 유대 메모리얼 목록/본문 — 도감과 별개의 화면 전체 오버레이) ──
+    const string MEMORIAL_ENTRY_ITEM_PREFAB_PATH = "Assets/Project/Prefabs/MemorialEntryItem.prefab";
+
+    static void BuildMemorialViewPanel(Transform canvasTransform)
+    {
+        Transform existing = canvasTransform.Find("MemorialViewPanel");
+        if (existing != null) Object.DestroyImmediate(existing.gameObject);
+
+        TMP_FontAsset font = LoadNotoFont();
+
+        GameObject panelRoot = new GameObject("MemorialViewPanel");
+        panelRoot.transform.SetParent(canvasTransform, false);
+        RectTransform rootRT = panelRoot.AddComponent<RectTransform>();
+        rootRT.anchorMin = Vector2.zero;
+        rootRT.anchorMax = Vector2.one;
+        rootRT.offsetMin = Vector2.zero;
+        rootRT.offsetMax = Vector2.zero;
+
+        Image dim = panelRoot.AddComponent<Image>();
+        dim.color = new Color(0f, 0f, 0f, 0.92f);
+
+        // ── Header (도감과 동일한 구조 — 제목 + 닫기) ──
+        GameObject header = new GameObject("Header");
+        header.transform.SetParent(panelRoot.transform, false);
+        RectTransform hrt = header.AddComponent<RectTransform>();
+        hrt.anchorMin = new Vector2(0f, 1f);
+        hrt.anchorMax = new Vector2(1f, 1f);
+        hrt.pivot = new Vector2(0.5f, 1f);
+        hrt.sizeDelta = new Vector2(0f, DEX_HEADER_HEIGHT);
+
+        Image hImg = header.AddComponent<Image>();
+        hImg.color = new Color(0.15f, 0.16f, 0.22f, 1f);
+
+        GameObject title = new GameObject("Title");
+        title.transform.SetParent(header.transform, false);
+        SetupText(title, "메모리얼", font, 28f, TextAlignmentOptions.Left,
+                  Vector2.zero, Vector2.one, new Vector2(24f, 0f), new Vector2(-80f, 0f));
+
+        GameObject closeGO = new GameObject("CloseButton");
+        closeGO.transform.SetParent(header.transform, false);
+        RectTransform closeRT = closeGO.AddComponent<RectTransform>();
+        closeRT.anchorMin = new Vector2(1f, 0f);
+        closeRT.anchorMax = new Vector2(1f, 1f);
+        closeRT.pivot = new Vector2(1f, 0.5f);
+        closeRT.sizeDelta = new Vector2(60f, 0f);
+        closeRT.anchoredPosition = new Vector2(-10f, 0f);
+        Image closeBg = closeGO.AddComponent<Image>();
+        closeBg.color = new Color(1f, 0.35f, 0.62f, 1f);
+        Button closeButton = closeGO.AddComponent<Button>();
+        closeButton.targetGraphic = closeBg;
+        GameObject closeLabelGO = new GameObject("Label");
+        closeLabelGO.transform.SetParent(closeGO.transform, false);
+        SetupText(closeLabelGO, "X", font, 22f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        // ── BodyRoot (헤더 아래 전체) — ListRoot/DetailRoot 두 상태가 겹쳐서 들어간다 ──
+        GameObject bodyRoot = new GameObject("BodyRoot");
+        bodyRoot.transform.SetParent(panelRoot.transform, false);
+        RectTransform bodyRT = bodyRoot.AddComponent<RectTransform>();
+        bodyRT.anchorMin = Vector2.zero;
+        bodyRT.anchorMax = Vector2.one;
+        bodyRT.offsetMin = Vector2.zero;
+        bodyRT.offsetMax = new Vector2(0f, -DEX_HEADER_HEIGHT);
+
+        // ── ListRoot: 세로 스크롤 목록 (해금 항목은 클릭 가능, 잠긴 항목은 제목까지 가려진 채로) ──
+        GameObject listRoot = CreateStretchChild(bodyRoot.transform, "ListRoot");
+
+        GameObject listScroll = new GameObject("Scroll View");
+        listScroll.transform.SetParent(listRoot.transform, false);
+        RectTransform lsRT = listScroll.AddComponent<RectTransform>();
+        lsRT.anchorMin = Vector2.zero;
+        lsRT.anchorMax = Vector2.one;
+        lsRT.offsetMin = Vector2.zero;
+        lsRT.offsetMax = Vector2.zero;
+        RectTransform listContent = SetupVerticalScrollContent(listScroll, new RectOffset(20, 20, 20, 20));
+
+        GameObject emptyGO = new GameObject("EmptyStateText");
+        emptyGO.transform.SetParent(listRoot.transform, false);
+        SetupText(emptyGO, "아직 메모리얼이 없습니다.", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, new Vector2(20f, 0f), new Vector2(-20f, 0f));
+        emptyGO.GetComponent<TMP_Text>().color = new Color(0.85f, 0.8f, 0.85f, 1f);
+        emptyGO.SetActive(false);
+
+        // ── DetailRoot: 본문 화면 (제목 + 스크롤 가능한 본문 + 하단 뒤로가기) ──
+        GameObject detailRoot = CreateStretchChild(bodyRoot.transform, "DetailRoot");
+        Image detailBg = detailRoot.AddComponent<Image>();
+        detailBg.color = new Color(0.1f, 0.08f, 0.11f, 1f);
+
+        GameObject detailScroll = new GameObject("Scroll View");
+        detailScroll.transform.SetParent(detailRoot.transform, false);
+        RectTransform dsRT = detailScroll.AddComponent<RectTransform>();
+        dsRT.anchorMin = Vector2.zero;
+        dsRT.anchorMax = Vector2.one;
+        dsRT.offsetMin = new Vector2(0f, 76f); // 하단 "목록으로" 버튼 자리
+        dsRT.offsetMax = Vector2.zero;
+        RectTransform detailContent = SetupVerticalScrollContent(detailScroll, new RectOffset(20, 20, 20, 20));
+
+        TMP_Text detailTitleText = CreateDexDetailText(detailContent.transform, font, 26f, TextAlignmentOptions.Left, true);
+        TMP_Text detailBodyText = CreateDexDetailText(detailContent.transform, font, 18f, TextAlignmentOptions.Left, false);
+
+        GameObject backGO = new GameObject("BackButton");
+        backGO.transform.SetParent(detailRoot.transform, false);
+        RectTransform backRT = backGO.AddComponent<RectTransform>();
+        backRT.anchorMin = new Vector2(0f, 0f);
+        backRT.anchorMax = new Vector2(1f, 0f);
+        backRT.pivot = new Vector2(0.5f, 0f);
+        backRT.sizeDelta = new Vector2(0f, 64f);
+        backRT.anchoredPosition = new Vector2(0f, 8f);
+        Image backBg = backGO.AddComponent<Image>();
+        backBg.color = new Color(0.3f, 0.3f, 0.35f, 1f);
+        Button backButton = backGO.AddComponent<Button>();
+        backButton.targetGraphic = backBg;
+        GameObject backLabelGO = new GameObject("Label");
+        backLabelGO.transform.SetParent(backGO.transform, false);
+        SetupText(backLabelGO, "목록으로", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        detailRoot.SetActive(false);
+
+        // ── MemorialViewPanel 컴포넌트 연결 ──
+        MemorialEntryItem itemPrefab = GetOrCreateMemorialEntryItemPrefab();
+
+        MemorialViewPanel panel = panelRoot.AddComponent<MemorialViewPanel>();
+        panel.root = panelRoot;
+        panel.closeButton = closeButton;
+        panel.flowerNameText = title.GetComponent<TMP_Text>();
+        panel.listRoot = listRoot;
+        panel.listContent = listContent;
+        panel.itemPrefab = itemPrefab;
+        panel.emptyStateText = emptyGO.GetComponent<TMP_Text>();
+        panel.detailRoot = detailRoot;
+        panel.detailTitleText = detailTitleText;
+        panel.detailBodyText = detailBodyText;
+        panel.detailBackButton = backButton;
+    }
+
+    /// <summary> 메모리얼 목록 행 프리팹을 로드하거나, 없으면 최초 1회 생성한다(FlowerDexItem과 동일 원칙). </summary>
+    static MemorialEntryItem GetOrCreateMemorialEntryItemPrefab()
+    {
+        MemorialEntryItem existing = AssetDatabase.LoadAssetAtPath<MemorialEntryItem>(MEMORIAL_ENTRY_ITEM_PREFAB_PATH);
+        if (existing != null) return existing;
+
+        TMP_FontAsset font = LoadNotoFont();
+
+        GameObject temp = new GameObject("MemorialEntryItem");
+        temp.AddComponent<RectTransform>();
+        LayoutElement le = temp.AddComponent<LayoutElement>();
+        le.preferredHeight = 64f;
+
+        Image bg = temp.AddComponent<Image>();
+        bg.color = new Color(1f, 1f, 1f, 0.06f);
+
+        Button selectButton = temp.AddComponent<Button>();
+        selectButton.targetGraphic = bg;
+
+        GameObject titleGO = new GameObject("TitleText");
+        titleGO.transform.SetParent(temp.transform, false);
+        SetupText(titleGO, "-", font, 18f, TextAlignmentOptions.Left,
+                  Vector2.zero, Vector2.one, new Vector2(16f, 0f), new Vector2(-70f, 0f));
+
+        GameObject badgeGO = new GameObject("NewBadgeText");
+        badgeGO.transform.SetParent(temp.transform, false);
+        SetupText(badgeGO, "NEW", font, 14f, TextAlignmentOptions.Center,
+                  new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-64f, 8f), new Vector2(-12f, -8f));
+        TMP_Text badgeTmp = badgeGO.GetComponent<TMP_Text>();
+        badgeTmp.color = new Color(1f, 0.85f, 0.3f, 1f);
+        badgeTmp.fontStyle = FontStyles.Bold;
+
+        MemorialEntryItem item = temp.AddComponent<MemorialEntryItem>();
+        item.titleText = titleGO.GetComponent<TMP_Text>();
+        item.newBadgeText = badgeTmp;
+        item.selectButton = selectButton;
+
+        GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(temp, MEMORIAL_ENTRY_ITEM_PREFAB_PATH);
+        Object.DestroyImmediate(temp);
+
+        return savedPrefab != null ? savedPrefab.GetComponent<MemorialEntryItem>() : null;
     }
 
     /// <summary>
@@ -1123,7 +1863,7 @@ public static class PCLayoutBuilder
     static FlowerDexItem GetOrCreateFlowerDexItemPrefab()
     {
         FlowerDexItem existing = AssetDatabase.LoadAssetAtPath<FlowerDexItem>(FLOWER_DEX_ITEM_PREFAB_PATH);
-        if (existing != null) return existing;
+        if (existing != null) return PatchUnreadMemorialBadgeIfMissing(existing);
 
         TMP_FontAsset font = LoadNotoFont();
 
@@ -1169,17 +1909,64 @@ public static class PCLayoutBuilder
         SetupText(statusGO, "-", font, 13f, TextAlignmentOptions.Center,
                   new Vector2(0f, 0f), new Vector2(1f, 0.16f), new Vector2(4f, 0f), new Vector2(-4f, 0f));
 
+        // 안 읽은 메모리얼 뱃지 — 칸 우측 상단에 작게 겹치는 점. 기본 비활성, FlowerDexItem.Refresh가 토글.
+        GameObject badgeGO = new GameObject("UnreadMemorialBadge");
+        badgeGO.transform.SetParent(temp.transform, false);
+        RectTransform badgeRT = badgeGO.AddComponent<RectTransform>();
+        badgeRT.anchorMin = new Vector2(1f, 1f);
+        badgeRT.anchorMax = new Vector2(1f, 1f);
+        badgeRT.pivot = new Vector2(0.5f, 0.5f);
+        badgeRT.sizeDelta = new Vector2(18f, 18f);
+        badgeRT.anchoredPosition = new Vector2(-6f, -6f);
+        Image badgeImg = badgeGO.AddComponent<Image>();
+        badgeImg.color = new Color(1f, 0.85f, 0.3f, 1f);
+        badgeGO.SetActive(false);
+
         FlowerDexItem item = temp.AddComponent<FlowerDexItem>();
         item.iconImage = iconImg;
         item.flowerNameText = nameGO.GetComponent<TMP_Text>();
         item.statusText = statusGO.GetComponent<TMP_Text>();
         item.selectButton = selectButton;
         item.currentHighlight = highlight;
+        item.unreadMemorialBadge = badgeGO;
 
         GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(temp, FLOWER_DEX_ITEM_PREFAB_PATH);
         Object.DestroyImmediate(temp);
 
         return savedPrefab != null ? savedPrefab.GetComponent<FlowerDexItem>() : null;
+    }
+
+    /// <summary>
+    /// 기존에 이미 저장된 FlowerDexItem 프리팹(재사용 대상이라 위 생성 분기를 안 타는 경우)에
+    /// unreadMemorialBadge 필드가 비어 있으면(유대 시스템 추가 이전에 만들어진 프리팹) 뱃지 자식을
+    /// 덧붙이고 필드를 채운 뒤 다시 저장한다 — "손으로 꾸며도 덮어쓰지 않는다" 원칙을 지키면서도,
+    /// 새 기능이 옛 프리팹에 자동으로 반영되게 하는 최소한의 패치.
+    /// </summary>
+    static FlowerDexItem PatchUnreadMemorialBadgeIfMissing(FlowerDexItem existing)
+    {
+        if (existing.unreadMemorialBadge != null) return existing;
+
+        GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(existing.gameObject);
+
+        GameObject badgeGO = new GameObject("UnreadMemorialBadge");
+        badgeGO.transform.SetParent(instance.transform, false);
+        RectTransform badgeRT = badgeGO.AddComponent<RectTransform>();
+        badgeRT.anchorMin = new Vector2(1f, 1f);
+        badgeRT.anchorMax = new Vector2(1f, 1f);
+        badgeRT.pivot = new Vector2(0.5f, 0.5f);
+        badgeRT.sizeDelta = new Vector2(18f, 18f);
+        badgeRT.anchoredPosition = new Vector2(-6f, -6f);
+        Image badgeImg = badgeGO.AddComponent<Image>();
+        badgeImg.color = new Color(1f, 0.85f, 0.3f, 1f);
+        badgeGO.SetActive(false);
+
+        FlowerDexItem item = instance.GetComponent<FlowerDexItem>();
+        item.unreadMemorialBadge = badgeGO;
+
+        PrefabUtility.SaveAsPrefabAsset(instance, FLOWER_DEX_ITEM_PREFAB_PATH);
+        Object.DestroyImmediate(instance);
+
+        return AssetDatabase.LoadAssetAtPath<FlowerDexItem>(FLOWER_DEX_ITEM_PREFAB_PATH);
     }
 
     // ── 헬퍼 메소드들 ─────────────────────────────────────────────────

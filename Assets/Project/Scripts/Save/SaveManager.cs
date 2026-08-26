@@ -31,6 +31,10 @@ public class SaveManager : MonoBehaviour
 
     private float autoSaveTimer;
 
+    /// <summary> Load() 진행 중(오프라인 정산 포함)에는 true — 아래 이벤트 기반 저장이 이 창에서 스스로
+    /// 다시 저장을 트리거하는 것을 막는다(불러오는 중간 상태를 저장해버리는 것을 방지). </summary>
+    private bool isLoading;
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -50,6 +54,33 @@ public class SaveManager : MonoBehaviour
         // 저장 파일이 있으면 LoadOwnedFlowers가 목록을 통째로 덮어쓰고,
         // 없으면 FlowerManager 쪽 최초 지급 로직이 정상 진행된다.
         Load();
+
+        // 구매/개화처럼 "잃으면 아까운" 중요한 순간에는 30초를 기다리지 않고 즉시 저장한다.
+        // isLoading 가드 덕분에 Load() 안에서(튜토리얼 최초 지급, 오프라인 정산 중 개화 등)
+        // 같은 이벤트가 발생해도 여기서 다시 저장을 트리거하지 않는다.
+        if (FlowerManager.Instance != null)
+        {
+            FlowerManager.Instance.OnFlowerBloomed += HandleFlowerBloomed;
+            FlowerManager.Instance.OnOwnedFlowersChanged += HandleOwnedFlowersChanged;
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (FlowerManager.Instance != null)
+        {
+            FlowerManager.Instance.OnFlowerBloomed -= HandleFlowerBloomed;
+            FlowerManager.Instance.OnOwnedFlowersChanged -= HandleOwnedFlowersChanged;
+        }
+    }
+
+    private void HandleFlowerBloomed(string _) => SaveUnlessLoading();
+    private void HandleOwnedFlowersChanged() => SaveUnlessLoading();
+
+    private void SaveUnlessLoading()
+    {
+        if (isLoading) return;
+        Save();
     }
 
     private void Update()
@@ -124,23 +155,31 @@ public class SaveManager : MonoBehaviour
 
         if (data == null) return;
 
-        if (GameManager.Instance != null)
-            GameManager.Instance.SetGold(data.totalGold);
+        isLoading = true;
+        try
+        {
+            if (GameManager.Instance != null)
+                GameManager.Instance.SetGold(data.totalGold);
 
-        List<FlowerInstance> loadedFlowers = data.flowers.Select(f => f.ToInstance()).ToList();
-        if (FlowerManager.Instance != null)
-            FlowerManager.Instance.LoadOwnedFlowers(loadedFlowers, data.currentDisplayedFlowerId);
+            List<FlowerInstance> loadedFlowers = data.flowers.Select(f => f.ToInstance()).ToList();
+            if (FlowerManager.Instance != null)
+                FlowerManager.Instance.LoadOwnedFlowers(loadedFlowers, data.currentDisplayedFlowerId);
 
-        if (PlayerStatManager.Instance != null)
-            PlayerStatManager.Instance.LoadLevels(data.playerStats);
+            if (PlayerStatManager.Instance != null)
+                PlayerStatManager.Instance.LoadLevels(data.playerStats);
 
-        double elapsedSeconds = ComputeElapsedSecondsSinceLastSave(data.lastSaveTimeTicksUtc);
+            double elapsedSeconds = ComputeElapsedSecondsSinceLastSave(data.lastSaveTimeTicksUtc);
 
-        OfflineSettlementResult result = FlowerManager.Instance != null
-            ? FlowerManager.Instance.ApplyOfflineProgress(elapsedSeconds)
-            : new OfflineSettlementResult { elapsedSeconds = elapsedSeconds };
+            OfflineSettlementResult result = FlowerManager.Instance != null
+                ? FlowerManager.Instance.ApplyOfflineProgress(elapsedSeconds)
+                : new OfflineSettlementResult { elapsedSeconds = elapsedSeconds };
 
-        OnOfflineSettlementApplied?.Invoke(result);
+            OnOfflineSettlementApplied?.Invoke(result);
+        }
+        finally
+        {
+            isLoading = false;
+        }
     }
 
     /// <summary>

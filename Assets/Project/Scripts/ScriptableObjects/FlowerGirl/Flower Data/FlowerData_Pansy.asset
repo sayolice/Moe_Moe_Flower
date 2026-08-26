@@ -15,10 +15,10 @@ MonoBehaviour:
   flowerId: Pansy
   displayName: "\uD32C\uC9C0"
   description: 
-  seedSprite: {fileID: 1710981365271166214, guid: 2b7cfbba8c34f204dad33e2ea0c73b02, type: 3}
-  sproutSprite: {fileID: 1710981365271166214, guid: 2b7cfbba8c34f204dad33e2ea0c73b02, type: 3}
-  growingSprite: {fileID: 1710981365271166214, guid: 2b7cfbba8c34f204dad33e2ea0c73b02, type: 3}
-  bloomSprite: {fileID: 1710981365271166214, guid: 2b7cfbba8c34f204dad33e2ea0c73b02, type: 3}
+  seedSprite: {fileID: 21300000, guid: 1e5012595275c9e4987cdc5048d142ce, type: 3}
+  sproutSprite: {fileID: 21300000, guid: 9f089beef9763db4d859ff1a13ff5fc1, type: 3}
+  growingSprite: {fileID: 21300000, guid: b34ea3d5be6cb9744a7aac14456404ab, type: 3}
+  bloomSprite: {fileID: 21300000, guid: 015ed46434dd37d419e984c79821cf1a, type: 3}
   requiredAffection: 220000
   seedPrice: 2000000
   baseGoldPerSecond: 3000
@@ -28,8 +28,10 @@ MonoBehaviour:
   passives:
   - passiveId: pansy_auto_affection
     displayName: "\uD640\uB85C \uD53C\uC5B4\uB098\uB294 \uB9C8\uC74C"
-    description: "\uBBF8\uAC1C\uD654\uD55C \uAF43\uC758 \uC790\uB3D9 \uC560\uC815 +0.25/s"
+    description: "\uBBF8\uAC1C\uD654\uD55C \uAF43\uC758 \uC790\uB3D9 \uC560\uC815
+      +0.25/s"
     effectType: 9
     scope: 0
     value: 0.25
     chance: 1
+  memorialEntries: []

@@ -15,10 +15,10 @@ MonoBehaviour:
   flowerId: Lotus
   displayName: "\uC5F0\uAF43"
   description: 
-  seedSprite: {fileID: -4854430882162019018, guid: a0e5978b02a904f40873c09e1a50d333, type: 3}
-  sproutSprite: {fileID: -4854430882162019018, guid: a0e5978b02a904f40873c09e1a50d333, type: 3}
-  growingSprite: {fileID: -4854430882162019018, guid: a0e5978b02a904f40873c09e1a50d333, type: 3}
-  bloomSprite: {fileID: -4854430882162019018, guid: a0e5978b02a904f40873c09e1a50d333, type: 3}
+  seedSprite: {fileID: 21300000, guid: c737d74e42738904abbeb23d0ee2b188, type: 3}
+  sproutSprite: {fileID: 21300000, guid: c737d74e42738904abbeb23d0ee2b188, type: 3}
+  growingSprite: {fileID: 21300000, guid: c737d74e42738904abbeb23d0ee2b188, type: 3}
+  bloomSprite: {fileID: 21300000, guid: c737d74e42738904abbeb23d0ee2b188, type: 3}
   requiredAffection: 330000000
   seedPrice: 14000000000
   baseGoldPerSecond: 2000000
@@ -28,8 +28,10 @@ MonoBehaviour:
   passives:
   - passiveId: lotus_touch_affection
     displayName: "\uC9C4\uD759 \uC18D\uC758 \uC778\uC5F0"
-    description: "\uBBF8\uAC1C\uD654 \uAF43 \uD130\uCE58 \uC2DC 6% \uD655\uB960\uB85C \uC560\uC815 1\uD68C \uCD94\uAC00"
+    description: "\uBBF8\uAC1C\uD654 \uAF43 \uD130\uCE58 \uC2DC 6% \uD655\uB960\uB85C
+      \uC560\uC815 1\uD68C \uCD94\uAC00"
     effectType: 8
     scope: 3
     value: 1
     chance: 0.06
+  memorialEntries: []

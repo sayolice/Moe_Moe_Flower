@@ -32,6 +32,7 @@ public class FlowerUpgradeItem : MonoBehaviour
     private bool hasCache;
     private long cachedGoldFloor = long.MinValue;
     private int cachedLevel = -1;
+    private int cachedBondLevel = -1;
     private LevelUpAmount cachedMode = (LevelUpAmount)(-1);
     private float cachedCostMultiplier = float.NaN; // 장미(전역 레벨업비용 할인)가 뒤늦게 켜지는 경우 대비
     private float cachedGpsMultiplier = float.NaN;  // 해바라기(전역 G/s 보너스)가 뒤늦게 켜지는 경우 대비
@@ -42,11 +43,12 @@ public class FlowerUpgradeItem : MonoBehaviour
         amountSelector = selector;
         hasCache = false; // 새로 배치된 행이므로 다음 프레임에 강제로 재계산
 
+        // Execute 연결은 holdRepeatButton 하나로만 한다 — actionButton.onClick까지 같이 걸면
+        // 짧게 한 번 눌러도 "누르는 순간"(HoldRepeatButton.OnPointerDown)과 "떼는 순간"(Button.onClick)
+        // 두 번 발동해서 1회 클릭에 레벨업이 2번 일어나는 버그가 된다. Button은 interactable
+        // 상태(회색 처리 등) 표시/판정용으로만 남겨두고, 리스너는 비워둔다.
         if (actionButton != null)
-        {
             actionButton.onClick.RemoveAllListeners();
-            actionButton.onClick.AddListener(Execute);
-        }
 
         if (holdRepeatButton != null)
         {
@@ -69,7 +71,7 @@ public class FlowerUpgradeItem : MonoBehaviour
 
         if (!instance.isBloomed)
         {
-            SetPreBloomState();
+            SetPreBloomState(data, instance);
             return;
         }
 
@@ -85,6 +87,7 @@ public class FlowerUpgradeItem : MonoBehaviour
         bool needsRecalculate = !hasCache
             || goldFloor != cachedGoldFloor
             || instance.currentLevel != cachedLevel
+            || instance.bondLevel != cachedBondLevel
             || mode != cachedMode
             || !Mathf.Approximately(costMultiplier, cachedCostMultiplier)
             || !Mathf.Approximately(gpsMultiplier, cachedGpsMultiplier);
@@ -94,12 +97,13 @@ public class FlowerUpgradeItem : MonoBehaviour
             hasCache = true;
             cachedGoldFloor = goldFloor;
             cachedLevel = instance.currentLevel;
+            cachedBondLevel = instance.bondLevel;
             cachedMode = mode;
             cachedCostMultiplier = costMultiplier;
             cachedGpsMultiplier = gpsMultiplier;
 
             int levelsToApply = CalculateLevelsForMode(data, instance.currentLevel, mode, GameManager.Instance.totalGold);
-            ApplyPreview(data, instance.currentLevel, levelsToApply, mode);
+            ApplyPreview(data, instance.currentLevel, instance.bondLevel, levelsToApply, mode);
         }
 
         if (holdRepeatButton != null)
@@ -121,40 +125,66 @@ public class FlowerUpgradeItem : MonoBehaviour
         }
     }
 
-    private void ApplyPreview(FlowerData data, int currentLevel, int levelsToApply, LevelUpAmount mode)
+    private void ApplyPreview(FlowerData data, int currentLevel, int bondLevel, int levelsToApply, LevelUpAmount mode)
     {
-        float currentGps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel);
+        float currentGps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel, bondLevel);
 
         if (levelGpsText != null)
-            levelGpsText.text = $"Lv.{currentLevel}   G/s {currentGps:0.00}";
+            levelGpsText.text = $"Lv.{currentLevel}   G/s {NumberFormatUtil.Format(currentGps)}";
 
         if (levelsToApply <= 0)
         {
             // 지금 가능한 레벨이 0이어도, 참고용으로 "다음 1레벨" 비용은 계속 보여주고 버튼만 비활성화
             long nextCost = FlowerManager.Instance.GetEffectiveLevelUpCost(data, currentLevel);
             if (actionText != null)
-                actionText.text = $"{nextCost:N0}G → +0.00 G/s";
+                actionText.text = $"{NumberFormatUtil.FormatGold(nextCost)} → +0 G/s";
             if (actionButton != null)
                 actionButton.interactable = false;
             return;
         }
 
         long totalCost = FlowerManager.Instance.GetEffectiveLevelUpCostForLevels(data, currentLevel, levelsToApply);
-        float gpsAfter = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel + levelsToApply);
+        float gpsAfter = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel + levelsToApply, bondLevel);
         float gpsDelta = gpsAfter - currentGps;
 
         string suffix = mode == LevelUpAmount.Max ? $" / Lv.{currentLevel + levelsToApply}" : "";
 
         if (actionText != null)
-            actionText.text = $"{totalCost:N0}G → +{gpsDelta:0.00} G/s{suffix}";
+            actionText.text = $"{NumberFormatUtil.FormatGold(totalCost)} → +{NumberFormatUtil.Format(gpsDelta)} G/s{suffix}";
 
         if (actionButton != null)
             actionButton.interactable = true;
     }
 
-    private void SetPreBloomState()
+    /// <summary>
+    /// 미개화 꽃의 행 표시: 애정 진행도 + 예상 개화 시간을 함께 보여준다(각 꽃마다 독립 표시).
+    /// 이 목록은 화면에 표시 중이 아닌 꽃도 전부 나열하므로, 터치 애정은 반영할 수 없고
+    /// FlowerManager.GetEffectiveAutoAffectionRate()(모든 미개화 꽃에 동일하게 적용되는 자동 애정)만 사용한다.
+    /// 속도가 TimeFormatUtil.MinDisplayRatePerSecond 이하(자동 애정이 사실상 0)면 나눗셈 자체를
+    /// 하지 않고 "예측 불가"라고 명시한다 — Uimanager.BuildBloomEtaSuffix와 동일한 판단 기준.
+    /// </summary>
+    private void SetPreBloomState(FlowerData data, FlowerInstance instance)
     {
-        if (levelGpsText != null) levelGpsText.text = "성장 중";
+        if (levelGpsText != null)
+        {
+            int current = Mathf.FloorToInt(instance.currentAffection);
+            int required = data.requiredAffection;
+            float rate = FlowerManager.Instance.GetEffectiveAutoAffectionRate();
+
+            string etaSuffix;
+            if (rate <= TimeFormatUtil.MinDisplayRatePerSecond)
+            {
+                etaSuffix = " / 개화까지 예측 불가";
+            }
+            else
+            {
+                double remaining = System.Math.Max(0, required - instance.currentAffection);
+                etaSuffix = $" / 개화까지 {TimeFormatUtil.Format(remaining / rate)}";
+            }
+
+            levelGpsText.text = $"애정 {current}/{required}{etaSuffix}";
+        }
+
         if (actionText != null) actionText.text = "개화 후 레벨업 가능";
         if (actionButton != null) actionButton.interactable = false;
         hasCache = false; // 개화하는 순간 다음 프레임에 즉시 재계산되도록 캐시 무효화

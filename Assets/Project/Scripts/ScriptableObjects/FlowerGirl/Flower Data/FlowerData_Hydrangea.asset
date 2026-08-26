@@ -15,10 +15,10 @@ MonoBehaviour:
   flowerId: Hydrangea
   displayName: "\uC218\uAD6D"
   description: 
-  seedSprite: {fileID: -9095717837082945937, guid: 2f9a9fcfd173e72419605a6d3e4a05a4, type: 3}
-  sproutSprite: {fileID: -2413806693520163455, guid: ef98efc9bbb42c840ba8946f1a47baf6, type: 3}
-  growingSprite: {fileID: 7482667652216324306, guid: 048eef221866ef14eaaae35ba7f722b0, type: 3}
-  bloomSprite: {fileID: 7482667652216324306, guid: b9736ea17418d5f4f8f0d4581459fc5a, type: 3}
+  seedSprite: {fileID: 21300000, guid: ff6675e4fe2cb5b4dbf8b63c3c9247e9, type: 3}
+  sproutSprite: {fileID: 21300000, guid: 15514eccb34e07a41a4372e7d8e0e182, type: 3}
+  growingSprite: {fileID: 21300000, guid: e7fefb0fbd0c11f4c8e1cefacecbae73, type: 3}
+  bloomSprite: {fileID: 21300000, guid: dcad029c383824543a23ec7ea6fa4c4c, type: 3}
   requiredAffection: 26000
   seedPrice: 180000
   baseGoldPerSecond: 600
@@ -34,3 +34,4 @@ MonoBehaviour:
     scope: 2
     value: 1
     chance: 1
+  memorialEntries: []

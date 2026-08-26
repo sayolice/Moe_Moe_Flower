@@ -15,10 +15,10 @@ MonoBehaviour:
   flowerId: Cherry-blossoms
   displayName: "\uBC9A\uAF43"
   description: 
-  seedSprite: {fileID: 6014669102647919676, guid: 564706970a6e7854481688b8ce39eca5, type: 3}
-  sproutSprite: {fileID: 6014669102647919676, guid: 564706970a6e7854481688b8ce39eca5, type: 3}
-  growingSprite: {fileID: 6014669102647919676, guid: 564706970a6e7854481688b8ce39eca5, type: 3}
-  bloomSprite: {fileID: 6014669102647919676, guid: 564706970a6e7854481688b8ce39eca5, type: 3}
+  seedSprite: {fileID: 21300000, guid: c10681b1852d7404f9d85858a7890d3d, type: 3}
+  sproutSprite: {fileID: 21300000, guid: c10681b1852d7404f9d85858a7890d3d, type: 3}
+  growingSprite: {fileID: 21300000, guid: c10681b1852d7404f9d85858a7890d3d, type: 3}
+  bloomSprite: {fileID: 21300000, guid: c10681b1852d7404f9d85858a7890d3d, type: 3}
   requiredAffection: 67000000
   seedPrice: 1700000000
   baseGoldPerSecond: 400000
@@ -28,8 +28,10 @@ MonoBehaviour:
   passives:
   - passiveId: cherry_free_level
     displayName: "\uD769\uB0A0\uB9AC\uB294 \uCD95\uBCF5"
-    description: "\uB808\uBCA8 \uAD6C\uB9E4 \uC2DC \uAC01\uAC01 10% \uD655\uB960\uB85C +1\uB808\uBCA8 \uBB34\uB8CC"
+    description: "\uB808\uBCA8 \uAD6C\uB9E4 \uC2DC \uAC01\uAC01 10% \uD655\uB960\uB85C
+      +1\uB808\uBCA8 \uBB34\uB8CC"
     effectType: 5
     scope: 0
     value: 1
     chance: 0.1
+  memorialEntries: []

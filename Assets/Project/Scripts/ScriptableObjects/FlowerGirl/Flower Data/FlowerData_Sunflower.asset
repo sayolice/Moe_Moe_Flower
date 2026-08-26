@@ -15,9 +15,9 @@ MonoBehaviour:
   flowerId: Sunflower
   displayName: "\uD574\uBC14\uB77C\uAE30"
   description: 
-  seedSprite: {fileID: 21300000, guid: f27ed1078dffd07498b1cb3e67caf175, type: 3}
-  sproutSprite: {fileID: 21300000, guid: f27ed1078dffd07498b1cb3e67caf175, type: 3}
-  growingSprite: {fileID: 21300000, guid: f27ed1078dffd07498b1cb3e67caf175, type: 3}
+  seedSprite: {fileID: 21300000, guid: d8de51b30b21708498bf067860813a01, type: 3}
+  sproutSprite: {fileID: 21300000, guid: ad6179ca193cd8d47a5dd0bdfb4a241b, type: 3}
+  growingSprite: {fileID: 21300000, guid: ff927f13b1ee78a4a8bc6d5cf91f92dd, type: 3}
   bloomSprite: {fileID: 21300000, guid: f27ed1078dffd07498b1cb3e67caf175, type: 3}
   requiredAffection: 3000
   seedPrice: 15000
@@ -28,9 +28,10 @@ MonoBehaviour:
   passives:
   - passiveId: sunflower_gps_bonus
     displayName: "\uD55C\uB0AE\uC758 \uD587\uC0B4"
-    description: "\uBAA8\uB4E0 \uAF43\uC758 G/s +2% (\uC628\uB77C\uC778\xB7\uC624\uD504\uB77C\uC778
+    description: "\uBAA8\uB4E0 \uAF43\uC758 G/s +2% (\uC628\uB77C\uC778/\uC624\uD504\uB77C\uC778
       \uB3D9\uC77C)"
     effectType: 3
     scope: 0
     value: 0.02
     chance: 1
+  memorialEntries: []

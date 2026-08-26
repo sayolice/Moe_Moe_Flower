@@ -35,6 +35,10 @@ public class FlowerData : ScriptableObject
     [Header("패시브 (0개 이상)")]
     public List<PassiveData> passives = new List<PassiveData>();
 
+    [Header("유대(Bond) 메모리얼 — 꽃마다 다름 (임계치/배율은 여기 없음, BondData 하나로 전 꽃 공통 관리)")]
+    [Tooltip("텍스트는 아직 비어 있을 수 있다 — 비어 있어도 레벨업/배율 시스템은 정상 동작해야 한다.")]
+    public List<MemorialData> memorialEntries = new List<MemorialData>();
+
     // ===== 계산 함수 =====
 
     /// <summary> N레벨 레벨업 비용 계산 (1 -> 2 로 갈 때 N=1) </summary>
@@ -65,6 +69,28 @@ public class FlowerData : ScriptableObject
             total += GetLevelUpCost(fromLevel + i);
         }
         return total;
+    }
+
+    /// <summary>
+    /// 성장 단계에 대응하는 스프라이트를 반환한다 (FlowerDisplayController/FlowerDexItem/FlowerDexPanel이
+    /// 각자 따로 switch문을 두지 않도록 단일 소스로 통일).
+    /// </summary>
+    public Sprite GetSpriteForStage(GrowthStage stage)
+    {
+        return stage switch
+        {
+            GrowthStage.Bloomed => bloomSprite,
+            GrowthStage.Growing => growingSprite,
+            GrowthStage.Sprout => sproutSprite,
+            _ => seedSprite
+        };
+    }
+
+    /// <summary> 지정한 유대 레벨에 해금되는 메모리얼(없으면 null). memorialEntries가 비어 있어도 안전. </summary>
+    public MemorialData GetMemorialForBondLevel(int bondLevel)
+    {
+        if (memorialEntries == null) return null;
+        return memorialEntries.Find(m => m != null && m.unlockBondLevel == bondLevel);
     }
 
     /// <summary>

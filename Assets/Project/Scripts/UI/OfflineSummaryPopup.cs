@@ -7,13 +7,18 @@ using UnityEngine.UI;
 /// 오프라인 정산 결과를 요약해서 보여주는 팝업. SaveManager.OnOfflineSettlementApplied를 구독해서
 /// 자동으로 뜬다. 개화한 꽃이 있으면 골드보다 위쪽에 더 크게 강조해서 보여준다
 /// (개화가 이 게임에서 가장 중요한 사건이므로).
+///
+/// [중요] 이 컴포넌트가 붙은 GameObject(root)는 절대 SetActive(false)로 끄지 않는다.
+/// Unity는 비활성 오브젝트의 Awake/Start를 스킵하므로, 여기서 자기 자신을 끄면 다음 씬 로드 때
+/// Start()의 SaveManager 이벤트 구독이 영영 실행되지 않아 팝업이 조용히 죽어버린다.
+/// 대신 CanvasGroup(alpha/interactable/blocksRaycasts)으로 보이기/숨기기만 전환한다.
 /// </summary>
 public class OfflineSummaryPopup : MonoBehaviour
 {
     [Header("최소 표시 기준 (너무 짧은 방치엔 팝업을 띄우지 않음 — UX 기본값, 밸런스 아님)")]
     public double minSecondsToShow = 60;
 
-    [Header("루트 (Show/Hide 대상)")]
+    [Header("루트 (표시/숨김 대상, 절대 SetActive(false)로 끄지 않음)")]
     public GameObject root;
 
     [Header("텍스트")]
@@ -27,14 +32,22 @@ public class OfflineSummaryPopup : MonoBehaviour
     [Header("닫기 버튼")]
     public Button closeButton;
 
+    private CanvasGroup canvasGroup;
+
     private void Awake()
     {
-        if (root != null) root.SetActive(false);
-        if (closeButton != null) closeButton.onClick.AddListener(Hide);
+        if (root == null) root = gameObject;
+
+        canvasGroup = root.GetComponent<CanvasGroup>();
+        if (canvasGroup == null) canvasGroup = root.AddComponent<CanvasGroup>();
+
+        SetVisible(false);
     }
 
     private void Start()
     {
+        if (closeButton != null) closeButton.onClick.AddListener(Hide);
+
         if (SaveManager.Instance != null)
             SaveManager.Instance.OnOfflineSettlementApplied += HandleSettlement;
     }
@@ -54,10 +67,10 @@ public class OfflineSummaryPopup : MonoBehaviour
         if (!worthShowing) return;
 
         if (elapsedTimeText != null)
-            elapsedTimeText.text = $"{FormatDuration(result.elapsedSeconds)} 동안 자리를 비웠어요";
+            elapsedTimeText.text = $"게임을 쉬는 동안 {TimeFormatUtil.Format(result.elapsedSeconds)}이 지났습니다.";
 
         if (goldEarnedText != null)
-            goldEarnedText.text = $"+{Mathf.FloorToInt((float)result.goldEarned):N0} G";
+            goldEarnedText.text = BuildGoldEarnedText(result.goldEarned);
 
         if (bloomedFlowersSection != null)
             bloomedFlowersSection.SetActive(hasBloom);
@@ -65,33 +78,44 @@ public class OfflineSummaryPopup : MonoBehaviour
         if (hasBloom && bloomedFlowersText != null)
             bloomedFlowersText.text = BuildBloomedFlowerText(result.newlyBloomedFlowerIds);
 
-        if (root != null) root.SetActive(true);
+        SetVisible(true);
+    }
+
+    /// <summary>
+    /// "이전 골드 → 현재 골드 (+획득량)" 형식. 이 이벤트가 발생하는 시점(SaveManager.Load 안,
+    /// 아직 Update()가 한 번도 돌지 않은 시점)에는 GameManager.totalGold에 이미 오프라인 수익이
+    /// 더해져 있으므로, "이전 골드"는 (현재 골드 - 획득량)으로 역산해도 정확하다.
+    /// </summary>
+    private string BuildGoldEarnedText(double goldEarned)
+    {
+        double goldAfter = GameManager.Instance != null ? GameManager.Instance.totalGold : goldEarned;
+        double goldBefore = goldAfter - goldEarned;
+
+        return $"{NumberFormatUtil.FormatGold(goldBefore)} → {NumberFormatUtil.FormatGold(goldAfter)} (+{NumberFormatUtil.FormatGold(goldEarned)})";
     }
 
     private string BuildBloomedFlowerText(List<string> flowerIds)
     {
-        var names = new List<string>();
+        var lines = new List<string>();
         foreach (string id in flowerIds)
         {
             FlowerData data = FlowerManager.Instance != null ? FlowerManager.Instance.GetFlowerData(id) : null;
-            names.Add(data != null ? data.displayName : id);
+            string name = data != null ? data.displayName : id;
+            lines.Add($"{KoreanUtil.WithSubjectParticle(name)} 개화했습니다!");
         }
-        return "🌸 " + string.Join(", ", names) + " 개화!";
+        return string.Join("\n", lines);
     }
 
-    private string FormatDuration(double totalSeconds)
+    private void SetVisible(bool visible)
     {
-        int seconds = Mathf.FloorToInt((float)totalSeconds);
-        int hours = seconds / 3600;
-        int minutes = (seconds % 3600) / 60;
-
-        if (hours > 0) return $"{hours}시간 {minutes}분";
-        if (minutes > 0) return $"{minutes}분";
-        return $"{seconds}초";
+        if (canvasGroup == null) return;
+        canvasGroup.alpha = visible ? 1f : 0f;
+        canvasGroup.interactable = visible;
+        canvasGroup.blocksRaycasts = visible;
     }
 
     private void Hide()
     {
-        if (root != null) root.SetActive(false);
+        SetVisible(false);
     }
 }
