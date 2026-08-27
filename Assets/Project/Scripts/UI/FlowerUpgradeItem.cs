@@ -9,9 +9,10 @@ using UnityEngine.UI;
 ///
 /// [재계산 최소화] 미리보기(비용/증가 G/s) 계산은 매 프레임 무조건 다시 하지 않는다.
 /// "골드(정수부) / 현재 레벨 / 레벨업 단위"가 실제로 바뀐 프레임에만 재계산하고,
-/// 변화가 없으면 캐시된 값을 그대로 표시한다. 레벨업 비용은 전부 정수(long)이므로
-/// 골드를 정수부로 floor해서 비교하면 자동 생산으로 매 프레임 미세하게 오르는 소수점
-/// 변화는 무시되고, 실제로 살 수 있는 레벨 수가 바뀔 수 있는 순간에만 재계산된다.
+/// 변화가 없으면 캐시된 값을 그대로 표시한다. 골드/비용이 BigNumber(FloorForCache 참고)라
+/// 정수 캐스팅은 못 쓰지만, 정수부만 남기는 것과 동일한 효과를 double 경로로 재현해서
+/// 자동 생산으로 매 프레임 미세하게 오르는 소수점 변화는 무시하고, 실제로 살 수 있는 레벨
+/// 수가 바뀔 수 있는 순간에만 재계산한다.
 /// 특히 MAX 모드의 GetMaxAffordableLevels 루프가 꽃 수가 늘어나도 매 프레임 반복 실행되지 않도록 하는 것이 핵심.
 /// </summary>
 public class FlowerUpgradeItem : MonoBehaviour
@@ -30,7 +31,7 @@ public class FlowerUpgradeItem : MonoBehaviour
 
     // ── 재계산 스킵용 캐시 ──────────────────────────────────────────
     private bool hasCache;
-    private long cachedGoldFloor = long.MinValue;
+    private BigNumber cachedGoldFloor = BigNumber.Zero; // 정수부까지만 반영 — FloorForCache 참고
     private int cachedLevel = -1;
     private int cachedBondLevel = -1;
     private LevelUpAmount cachedMode = (LevelUpAmount)(-1);
@@ -76,7 +77,7 @@ public class FlowerUpgradeItem : MonoBehaviour
         }
 
         LevelUpAmount mode = amountSelector != null ? amountSelector.Current : LevelUpAmount.One;
-        long goldFloor = (long)GameManager.Instance.totalGold;
+        BigNumber goldFloor = FloorForCache(GameManager.Instance.totalGold);
         float costMultiplier = PassiveManager.Instance != null
             ? PassiveManager.Instance.GetTotalMultiplier(PassiveEffectType.LevelUpCostDiscountPercent)
             : 1f;
@@ -110,7 +111,19 @@ public class FlowerUpgradeItem : MonoBehaviour
             holdRepeatButton.allowRepeat = (mode != LevelUpAmount.Max);
     }
 
-    private int CalculateLevelsForMode(FlowerData data, int currentLevel, LevelUpAmount mode, double gold)
+    /// <summary>
+    /// 캐시 비교 전용 — 원래 (long)totalGold로 정수부만 남겨 "레벨업 비용(정수)에 영향 없는 소수점
+    /// 미세 변화"를 무시했었다. BigNumber는 정수 캐스팅이 없으므로, double 범위 안에서는 같은 방식
+    /// (버림)을 재현하고, 그 범위를 넘는(사실상 도달 불가능한) 값은 그냥 있는 그대로 비교한다 —
+    /// 그 경우는 애초에 이 캐시 최적화보다 훨씬 큰 자릿수라 프레임마다 재계산돼도 체감상 문제없다.
+    /// </summary>
+    private static BigNumber FloorForCache(BigNumber gold)
+    {
+        double asDouble = gold.ToDouble();
+        return double.IsInfinity(asDouble) ? gold : BigNumber.FromDouble(System.Math.Floor(asDouble));
+    }
+
+    private int CalculateLevelsForMode(FlowerData data, int currentLevel, LevelUpAmount mode, BigNumber gold)
     {
         switch (mode)
         {
@@ -127,15 +140,17 @@ public class FlowerUpgradeItem : MonoBehaviour
 
     private void ApplyPreview(FlowerData data, int currentLevel, int bondLevel, int levelsToApply, LevelUpAmount mode)
     {
-        float currentGps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel, bondLevel);
+        BigNumber currentGps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel, bondLevel);
 
+        // FormatPrecise인 이유: 저레벨 G/s(예: 민들레 Lv.1 = 1)나 레벨업 1회당 증가분은 1 미만인 게
+        // 정상인데, Format()으로 찍으면 정수로 뭉개져서 "0"이 되어 레벨업해도 안 오르는 것처럼 보였다.
         if (levelGpsText != null)
-            levelGpsText.text = $"Lv.{currentLevel}   G/s {NumberFormatUtil.Format(currentGps)}";
+            levelGpsText.text = $"Lv.{currentLevel}   G/s {NumberFormatUtil.FormatPrecise(currentGps)}";
 
         if (levelsToApply <= 0)
         {
             // 지금 가능한 레벨이 0이어도, 참고용으로 "다음 1레벨" 비용은 계속 보여주고 버튼만 비활성화
-            long nextCost = FlowerManager.Instance.GetEffectiveLevelUpCost(data, currentLevel);
+            BigNumber nextCost = FlowerManager.Instance.GetEffectiveLevelUpCost(data, currentLevel);
             if (actionText != null)
                 actionText.text = $"{NumberFormatUtil.FormatGold(nextCost)} → +0 G/s";
             if (actionButton != null)
@@ -143,14 +158,14 @@ public class FlowerUpgradeItem : MonoBehaviour
             return;
         }
 
-        long totalCost = FlowerManager.Instance.GetEffectiveLevelUpCostForLevels(data, currentLevel, levelsToApply);
-        float gpsAfter = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel + levelsToApply, bondLevel);
-        float gpsDelta = gpsAfter - currentGps;
+        BigNumber totalCost = FlowerManager.Instance.GetEffectiveLevelUpCostForLevels(data, currentLevel, levelsToApply);
+        BigNumber gpsAfter = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel + levelsToApply, bondLevel);
+        BigNumber gpsDelta = gpsAfter - currentGps;
 
         string suffix = mode == LevelUpAmount.Max ? $" / Lv.{currentLevel + levelsToApply}" : "";
 
         if (actionText != null)
-            actionText.text = $"{NumberFormatUtil.FormatGold(totalCost)} → +{NumberFormatUtil.Format(gpsDelta)} G/s{suffix}";
+            actionText.text = $"{NumberFormatUtil.FormatGold(totalCost)} → +{NumberFormatUtil.FormatPrecise(gpsDelta)} G/s{suffix}";
 
         if (actionButton != null)
             actionButton.interactable = true;
@@ -167,9 +182,10 @@ public class FlowerUpgradeItem : MonoBehaviour
     {
         if (levelGpsText != null)
         {
-            int current = Mathf.FloorToInt(instance.currentAffection);
-            int required = data.requiredAffection;
-            float rate = FlowerManager.Instance.GetEffectiveAutoAffectionRate();
+            // Uimanager와 동일하게 축약 표기 — 후반 꽃의 필요 애정이 수백만~수억이라 그대로는 못 읽는다.
+            string current = NumberFormatUtil.Format(instance.currentAffection);
+            string required = NumberFormatUtil.Format(data.requiredAffection);
+            double rate = FlowerManager.Instance.GetEffectiveAutoAffectionRate();
 
             string etaSuffix;
             if (rate <= TimeFormatUtil.MinDisplayRatePerSecond)
@@ -178,7 +194,7 @@ public class FlowerUpgradeItem : MonoBehaviour
             }
             else
             {
-                double remaining = System.Math.Max(0, required - instance.currentAffection);
+                double remaining = System.Math.Max(0, data.requiredAffection - instance.currentAffection);
                 etaSuffix = $" / 개화까지 {TimeFormatUtil.Format(remaining / rate)}";
             }
 

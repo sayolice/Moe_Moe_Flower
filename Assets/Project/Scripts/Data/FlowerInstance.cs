@@ -11,7 +11,22 @@ using UnityEngine;
 public class FlowerInstance
 {
     public string flowerId;        // 어떤 FlowerData인지 (id로 참조, 저장 데이터 키)
-    public float currentAffection; // 현재 애정 (성장 단계에서만 의미 있음)
+
+    /// <summary>
+    /// 현재 애정 (성장 단계에서만 의미 있음).
+    ///
+    /// [반드시 double이어야 한다 — float이면 자동 애정이 조용히 멈춘다]
+    /// float은 유효 정수 정밀도가 약 1,670만(2^24)까지다. 값이 838만(2^23)을 넘어서는 순간
+    /// "표현 가능한 최소 간격(ULP)"이 1.0이 되고, 1,670만을 넘으면 2.0이 된다. 그런데 자동 애정은
+    /// 매 프레임 `rate * Time.deltaTime`이라는 아주 작은 값을 더하는 방식이라 — 초당 129 기준으로
+    /// 200fps면 프레임당 0.65 — 이 증가분이 ULP보다 작아지면 덧셈 결과가 원래 값으로 그대로
+    /// 반올림되어 **증가가 통째로 사라진다**. 화면에 "0.0 애정/s"로 보였던 실제 원인이 이것이고,
+    /// 오프라인 정산만 정상이었던 이유도 그쪽은 큰 값을 한 번에 더하기 때문이다.
+    /// 후반 꽃의 requiredAffection이 수백만~수억(연꽃 3.3억)이라 이 구간은 반드시 도달한다.
+    /// double은 정수 정밀도가 약 9,007조(2^53)라 이 게임의 어떤 수치에서도 같은 문제가 없다.
+    /// (NumberFormatUtil이 골드 표기에서 double 경로를 유지하는 것과 정확히 같은 이유다.)
+    /// </summary>
+    public double currentAffection;
     public int currentLevel;       // 개화 후 레벨 (개화 전엔 0)
     public bool isBloomed;         // 개화 여부
 
@@ -25,7 +40,7 @@ public class FlowerInstance
     public FlowerInstance(string id)
     {
         flowerId = id;
-        currentAffection = 0f;
+        currentAffection = 0;
         currentLevel = 0;
         isBloomed = false;
         bond = 0;
@@ -37,7 +52,8 @@ public class FlowerInstance
     public float GetGrowthPercent(int requiredAffection)
     {
         if (requiredAffection <= 0) return 1f;
-        return Mathf.Clamp01(currentAffection / requiredAffection);
+        // 나눗셈은 double로 하고, 결과(0~1)만 float으로 좁힌다 — 비율은 작은 수라 float으로 충분하다.
+        return Mathf.Clamp01((float)(currentAffection / requiredAffection));
     }
 
     /// <summary>

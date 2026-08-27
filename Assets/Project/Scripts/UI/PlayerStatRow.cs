@@ -27,7 +27,7 @@ public class PlayerStatRow : MonoBehaviour
 
     // ── 재계산 스킵용 캐시 ──────────────────────────────────────────
     private bool hasCache;
-    private long cachedGoldFloor = long.MinValue;
+    private BigNumber cachedGoldFloor = BigNumber.Zero; // 정수부까지만 반영 — FloorForCache 참고
     private int cachedLevel = -1;
     private LevelUpAmount cachedMode = (LevelUpAmount)(-1);
 
@@ -65,7 +65,7 @@ public class PlayerStatRow : MonoBehaviour
 
         int level = PlayerStatManager.Instance.GetLevel(statType);
         LevelUpAmount mode = amountSelector != null ? amountSelector.Current : LevelUpAmount.One;
-        long goldFloor = (long)GameManager.Instance.totalGold;
+        BigNumber goldFloor = FloorForCache(GameManager.Instance.totalGold);
 
         bool needsRecalculate = !hasCache
             || goldFloor != cachedGoldFloor
@@ -87,7 +87,14 @@ public class PlayerStatRow : MonoBehaviour
             holdRepeatButton.allowRepeat = (mode != LevelUpAmount.Max);
     }
 
-    private int CalculateLevelsForMode(int currentLevel, LevelUpAmount mode, double gold)
+    /// <summary> FlowerUpgradeItem.FloorForCache와 동일 원칙 — 캐시 비교 전용. </summary>
+    private static BigNumber FloorForCache(BigNumber gold)
+    {
+        double asDouble = gold.ToDouble();
+        return double.IsInfinity(asDouble) ? gold : BigNumber.FromDouble(System.Math.Floor(asDouble));
+    }
+
+    private int CalculateLevelsForMode(int currentLevel, LevelUpAmount mode, BigNumber gold)
     {
         switch (mode)
         {
@@ -104,15 +111,18 @@ public class PlayerStatRow : MonoBehaviour
 
     private void ApplyPreview(PlayerStatData data, int currentLevel, int levelsToApply, LevelUpAmount mode)
     {
-        float currentValue = data.GetValue(currentLevel);
+        BigNumber currentValue = data.GetValue(currentLevel);
 
+        // FormatPrecise인 이유: 이 값(터치당 애정/골드, 초당 자동 애정)은 저레벨에서 1 미만인 게
+        // 정상인데(예: 자동 애정 Lv.1 = 0.5), Format()으로 찍으면 정수로 뭉개져서 "0"이 되어
+        // 강화해도 안 오르는 것처럼 보였다.
         if (valueText != null)
-            valueText.text = $"Lv.{currentLevel}   현재 +{NumberFormatUtil.Format(currentValue)}{data.valueSuffix}";
+            valueText.text = $"Lv.{currentLevel}   현재 +{NumberFormatUtil.FormatPrecise(currentValue)}{data.valueSuffix}";
 
         if (levelsToApply <= 0)
         {
             // 지금 가능한 레벨이 0이어도, 참고용으로 "다음 1레벨" 비용은 계속 보여주고 버튼만 비활성화
-            long nextCost = data.GetUpgradeCost(currentLevel);
+            BigNumber nextCost = data.GetUpgradeCost(currentLevel);
             if (actionText != null)
                 actionText.text = $"{NumberFormatUtil.FormatGold(nextCost)} → +0{data.valueSuffix}";
             if (actionButton != null)
@@ -120,14 +130,14 @@ public class PlayerStatRow : MonoBehaviour
             return;
         }
 
-        long totalCost = PlayerStatManager.Instance.GetUpgradeCostForLevels(statType, levelsToApply);
-        float valueAfter = data.GetValue(currentLevel + levelsToApply);
-        float valueDelta = valueAfter - currentValue;
+        BigNumber totalCost = PlayerStatManager.Instance.GetUpgradeCostForLevels(statType, levelsToApply);
+        BigNumber valueAfter = data.GetValue(currentLevel + levelsToApply);
+        BigNumber valueDelta = valueAfter - currentValue;
 
         string suffix = mode == LevelUpAmount.Max ? $" / Lv.{currentLevel + levelsToApply}" : "";
 
         if (actionText != null)
-            actionText.text = $"{NumberFormatUtil.FormatGold(totalCost)} → +{NumberFormatUtil.Format(valueDelta)}{data.valueSuffix}{suffix}";
+            actionText.text = $"{NumberFormatUtil.FormatGold(totalCost)} → +{NumberFormatUtil.FormatPrecise(valueDelta)}{data.valueSuffix}{suffix}";
 
         if (actionButton != null)
             actionButton.interactable = true;

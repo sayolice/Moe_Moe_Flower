@@ -9,7 +9,9 @@ using System.Collections.Generic;
 public class FlowerSaveEntry
 {
     public string flowerId;
-    public float currentAffection;
+    // FlowerInstance.currentAffection과 동일하게 double이어야 한다(그쪽 주석의 정밀도 설명 참고).
+    // 예전 세이브의 float 값도 JsonUtility가 double로 그대로 읽어들이므로 하위 호환이 깨지지 않는다.
+    public double currentAffection;
     public int currentLevel;
     public bool isBloomed;
 
@@ -69,7 +71,16 @@ public class SaveData
 {
     public int saveVersion = 1;
 
+    // [골드를 BigNumber로 저장하는 방법] 예전 세이브 파일은 totalGold를 순수 숫자(JSON number)로
+    // 저장했다. 필드 이름을 그대로 "totalGold"로 유지해야 그 값을 계속 읽을 수 있다(JsonUtility는
+    // 필드 이름으로 매칭하므로, 이름을 바꾸면 예전 값을 조용히 못 읽고 0이 되어버린다). 새 저장은
+    // 이 필드에 double로 옮겨 담을 수 있는 값이면 그대로 쓰고, double 상한을 넘는 값은 아래 두
+    // 필드(가수/지수)에 정확히 저장한다 — SaveManager.Save/Load가 이 우선순위를 처리한다.
     public double totalGold;
+    public double totalGoldMantissa;
+    public long totalGoldExponent;
+    public bool totalGoldExceedsDouble; // true면 totalGold 대신 mantissa/exponent가 진짜 값이다
+
     public string currentDisplayedFlowerId;
 
     public List<FlowerSaveEntry> flowers = new List<FlowerSaveEntry>();

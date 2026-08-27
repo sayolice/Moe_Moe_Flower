@@ -88,9 +88,13 @@ public class PassiveManager : MonoBehaviour
     /// (나팔꽃: TouchGoldExtraChance). "지금 터치한 꽃이 나팔꽃이어야 한다"는 조건이 없으므로,
     /// 나팔꽃을 화면에 띄우지 않고 다른 꽃을 보고 있어도 계속 적용된다.
     /// </summary>
-    public float RollAnyFlowerTouchBonus(PassiveEffectType type, float baseAmount)
+    /// <summary>
+    /// baseAmount/반환이 BigNumber인 이유: 지금 확정된 이 스코프의 패시브(나팔꽃)는 TouchGoldExtraChance
+    /// 전용이고, 터치 골드는 총 골드에 더해지는 상한 없는 값이기 때문이다(BigNumber.cs 참고).
+    /// </summary>
+    public BigNumber RollAnyFlowerTouchBonus(PassiveEffectType type, BigNumber baseAmount)
     {
-        float bonus = 0f;
+        BigNumber bonus = BigNumber.Zero;
         foreach (var (_, passive) in GetActivePassives(type))
         {
             if (passive.scope != PassiveScope.AnyFlowerTouch) continue;
@@ -101,12 +105,16 @@ public class PassiveManager : MonoBehaviour
 
     // ===== 3. 미개화 대상 터치형 (팬지: TouchAffectionExtraChance) =====
 
-    /// <summary> 지금 터치 중인 대상이 미개화 상태일 때, 보유한 AnyUnbloomedTouch 스코프 패시브를 판정한다. </summary>
-    public float RollAnyUnbloomedTouchBonus(FlowerInstance touchedInstance, PassiveEffectType type, float baseAmount)
+    /// <summary>
+    /// 지금 터치 중인 대상이 미개화 상태일 때, 보유한 AnyUnbloomedTouch 스코프 패시브를 판정한다.
+    /// baseAmount/반환이 double인 이유: 이 스코프(팬지)는 TouchAffectionExtraChance 전용이고,
+    /// 터치 애정은 currentAffection(개화하면 더 안 자라는, 상한 있는 값)에만 쓰이기 때문이다.
+    /// </summary>
+    public double RollAnyUnbloomedTouchBonus(FlowerInstance touchedInstance, PassiveEffectType type, double baseAmount)
     {
-        if (touchedInstance == null || touchedInstance.isBloomed) return 0f;
+        if (touchedInstance == null || touchedInstance.isBloomed) return 0;
 
-        float bonus = 0f;
+        double bonus = 0;
         foreach (var (_, passive) in GetActivePassives(type))
         {
             if (passive.scope != PassiveScope.AnyUnbloomedTouch) continue;
@@ -155,15 +163,15 @@ public class PassiveManager : MonoBehaviour
     /// 레벨업 액션 1회(그 액션에서 실제로 지불한 골드 전체) 기준 환급 판정(라벤더 5%×100%).
     /// 환급액이 액션 규모에 비례하므로 +1로 나눠 사든 MAX로 한 번에 사든 기대값은 항상 동일하다.
     /// </summary>
-    public long RollLevelUpRefund(long goldSpentThisAction)
+    public BigNumber RollLevelUpRefund(BigNumber goldSpentThisAction)
     {
-        if (goldSpentThisAction <= 0) return 0;
+        if (goldSpentThisAction <= BigNumber.Zero) return BigNumber.Zero;
 
-        long refund = 0;
+        BigNumber refund = BigNumber.Zero;
         foreach (var (_, passive) in GetActivePassives(PassiveEffectType.LevelUpFullRefundChance))
         {
             if (Random.value < passive.chance)
-                refund += (long)(goldSpentThisAction * passive.value);
+                refund += goldSpentThisAction * passive.value;
         }
         return refund;
     }

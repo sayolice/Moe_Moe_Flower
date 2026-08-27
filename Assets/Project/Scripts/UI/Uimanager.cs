@@ -30,18 +30,43 @@ public class UIManager : MonoBehaviour
     [Header("애정 속도 표시 스무딩 (초 단위 반응 시간 — 골드는 스무딩 없이 직접 계산해서 표시함)")]
     public float rateSmoothingTime = 0.5f;
 
-    private float lastAffection;
+    [Header("터치 골드 반응 연출 (초 단위 감쇠 시간)")]
+    [Tooltip("터치할 때마다 '골드 +n/s' 표시에 순간적으로 얹혔다가 이 시간에 걸쳐 서서히 빠지는 " +
+             "시각 효과 — 애정처럼 터치에 반응하는 느낌을 준다. 실제 골드 계산에는 전혀 영향 없음.")]
+    public float touchGoldBurstDecayTime = 1.2f;
+
+    // currentAffection과 동일하게 double — float으로 두면 값이 커진 뒤 (affectionNow - lastAffection)
+    // 자체가 정밀도에 먹혀 0이 되어, 실제로는 애정이 오르고 있어도 화면에는 계속 0.0/s로 보인다.
+    private double lastAffection;
     private string lastTrackedFlowerId;
     private float displayedAffectionPerSecond;
     private bool initialized;
 
+    /// <summary>
+    /// 터치 골드 반응 연출 전용 누적치 — 절대 totalGold를 관찰하지 않고 OnTouchGoldGranted 이벤트로만
+    /// 값이 올라간다(터치했다는 사실 자체를 신호로 받음). 그래서 레벨업/구매 같은 골드 소비 이벤트가
+    /// 이 값에 전혀 영향을 못 준다 — 예전 "골드 +n/s가 0에 고정" 버그가 totalGold의 프레임간 변화량을
+    /// 직접 측정해서(소비도 그 변화량에 섞여 들어감) 생겼던 것과 같은 실수를 반복하지 않기 위함이다.
+    /// 매 프레임 지수적으로 감쇠만 시키므로 절대 음수가 되지 않는다.
+    /// </summary>
+    private double touchGoldBurst;
+
     private void Start()
     {
         if (FlowerManager.Instance != null)
+        {
             FlowerManager.Instance.OnBondLevelUp += HandleBondLevelUp;
+            FlowerManager.Instance.OnTouchGoldGranted += HandleTouchGoldGranted;
+        }
 
         if (affectionBarButton != null)
             affectionBarButton.onClick.AddListener(OpenMemorialForCurrentFlower);
+    }
+
+    private void HandleTouchGoldGranted(BigNumber amount)
+    {
+        // 화면 표시 전용이라 double로 좁혀도 안전하다(실제 골드는 GameManager.totalGold, BigNumber 그대로).
+        touchGoldBurst += amount.ToDouble();
     }
 
     /// <summary>
@@ -63,7 +88,10 @@ public class UIManager : MonoBehaviour
     private void OnDestroy()
     {
         if (FlowerManager.Instance != null)
+        {
             FlowerManager.Instance.OnBondLevelUp -= HandleBondLevelUp;
+            FlowerManager.Instance.OnTouchGoldGranted -= HandleTouchGoldGranted;
+        }
     }
 
     /// <summary>
@@ -183,8 +211,9 @@ public class UIManager : MonoBehaviour
         // 애정 속도: 현재 표시 중인 꽃 기준
         if (instance != null && !instance.isBloomed)
         {
-            float affectionNow = instance.currentAffection;
-            float instantAffectionRate = (affectionNow - lastAffection) / dt;
+            double affectionNow = instance.currentAffection;
+            // 뺄셈까지 double로 하고, 그 차이(초당 증가량 — 작은 수)만 float으로 좁힌다.
+            float instantAffectionRate = (float)((affectionNow - lastAffection) / dt);
             displayedAffectionPerSecond = Mathf.Lerp(displayedAffectionPerSecond, instantAffectionRate, alpha);
             lastAffection = affectionNow;
         }
@@ -201,16 +230,25 @@ public class UIManager : MonoBehaviour
     /// 음수로 떨어져서, 이후 지수 스무딩으로 회복되는 데 오래 걸리거나 재실행 전까지 "0/s"에
     /// 갇힌 것처럼 보였다. 지금은 골드 잔액을 아예 보지 않고 FlowerManager.GetTotalGoldPerSecond()
     /// (꽃의 개화 여부·레벨만으로 계산)를 그대로 쓰므로, 골드가 어떻게 소모되든 절대 왜곡되지 않는다.
+    ///
+    /// [터치 반응] touchGoldBurst(OnTouchGoldGranted 이벤트로만 오르고 매 프레임 지수 감쇠하는 값)를
+    /// 표시에만 더해서, 애정처럼 "터치하면 반영된다"는 느낌을 준다 — 위 버그를 다시 만들지 않도록
+    /// totalGold 자체는 절대 들여다보지 않는다.
     /// </summary>
     private void UpdateGoldUI()
     {
         if (goldText != null)
             goldText.text = $"골드 {NumberFormatUtil.Format(GameManager.Instance.totalGold)}";
 
+        float decay = Mathf.Exp(-Time.deltaTime / Mathf.Max(0.01f, touchGoldBurstDecayTime));
+        touchGoldBurst *= decay;
+        if (touchGoldBurst < 0.0001) touchGoldBurst = 0; // 무한히 작아지며 계속 계산되는 것을 방지
+
         if (goldPerSecondText != null)
         {
-            float gps = FlowerManager.Instance != null ? FlowerManager.Instance.GetTotalGoldPerSecond() : 0f;
-            goldPerSecondText.text = $"골드 +{NumberFormatUtil.Format(gps)}/s";
+            BigNumber baseline = FlowerManager.Instance != null ? FlowerManager.Instance.GetTotalGoldPerSecond() : BigNumber.Zero;
+            BigNumber displayed = baseline + touchGoldBurst;
+            goldPerSecondText.text = $"골드 +{NumberFormatUtil.FormatPrecise(displayed)}/s";
         }
     }
 
@@ -231,7 +269,7 @@ public class UIManager : MonoBehaviour
             // 게이지 바 1개)을 그대로 재사용하되 내용만 바꾼다. 레벨업 자체는 여전히 오른쪽 꽃 탭
             // (FlowerUpgradePanel)에서만 가능 — 여기는 표시 전용.
             BondData bondData = FlowerManager.Instance.ActiveBondData;
-            float gps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel);
+            BigNumber gps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel);
             float bondMultiplier = FlowerManager.Instance.GetBondGoldMultiplier(instance.bondLevel);
 
             // 유대 배율이 걸려 있을 때만 "(×1.25)"처럼 드러낸다 — Lv.0(배율 없음)에서까지 "(×1)"을
@@ -242,7 +280,7 @@ public class UIManager : MonoBehaviour
                 unreadMemorialBadge.SetActive(FlowerManager.Instance.HasUnreadMemorial(instance.flowerId));
 
             if (affectionPerSecondText != null)
-                affectionPerSecondText.text = $"Lv.{instance.currentLevel}   G/s {NumberFormatUtil.Format(gps)}{multiplierSuffix}";
+                affectionPerSecondText.text = $"Lv.{instance.currentLevel}   G/s {NumberFormatUtil.FormatPrecise(gps)}{multiplierSuffix}";
 
             bool isBondMaxed = instance.bondLevel >= bondData.maxBondLevel;
             if (isBondMaxed)
@@ -269,8 +307,10 @@ public class UIManager : MonoBehaviour
         }
 
         float percent = instance.GetGrowthPercent(data.requiredAffection);
-        int current = Mathf.FloorToInt(instance.currentAffection);
-        int required = data.requiredAffection;
+        // 후반 꽃은 필요 애정이 수백만~수억이라 그대로 찍으면 읽기 어렵다 — 골드와 동일하게
+        // NumberFormatUtil로 축약한다(Mathf.FloorToInt는 float 인자라 애초에 이 크기를 못 받는다).
+        string current = NumberFormatUtil.Format(instance.currentAffection);
+        string required = NumberFormatUtil.Format(data.requiredAffection);
 
         if (unreadMemorialBadge != null) unreadMemorialBadge.SetActive(false); // 미개화 상태는 애초에 유대/메모리얼이 없음
 

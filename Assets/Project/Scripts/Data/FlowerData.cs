@@ -40,30 +40,35 @@ public class FlowerData : ScriptableObject
     public List<MemorialData> memorialEntries = new List<MemorialData>();
 
     // ===== 계산 함수 =====
+    // [전부 BigNumber를 반환하는 이유] 레벨엔 상한이 없고 성장률은 매 레벨 곱해지는 지수 함수라,
+    // 결과값(비용/생산량)은 오래 플레이할수록 결국 long/double의 한계에도 도달한다. levelUpBaseCost/
+    // baseGoldPerSecond 자체(디자이너가 손으로 넣는 Lv.1 기준값)는 작은 수라 double로 충분하지만,
+    // "그 값에 성장률을 몇십~몇백 제곱한 결과"는 그렇지 않다 — BigNumber.PowDouble이 그 제곱 자체를
+    // Math.Pow로 직접 계산하지 않고 로그로 처리해서, 결과가 아무리 커져도 Infinity가 되지 않는다.
 
     /// <summary> N레벨 레벨업 비용 계산 (1 -> 2 로 갈 때 N=1) </summary>
-    public long GetLevelUpCost(int currentLevel)
+    public BigNumber GetLevelUpCost(int currentLevel)
     {
-        double cost = levelUpBaseCost * System.Math.Pow(levelUpGrowthRate, currentLevel - 1);
-        return (long)cost;
+        BigNumber growthFactor = BigNumber.PowDouble(levelUpGrowthRate, currentLevel - 1);
+        return levelUpBaseCost * growthFactor;
     }
 
     /// <summary> 특정 레벨에서의 초당 골드 생산량 </summary>
-    public float GetGoldPerSecond(int level)
+    public BigNumber GetGoldPerSecond(int level)
     {
-        double gps = baseGoldPerSecond * System.Math.Pow(goldPerSecondGrowthRate, level - 1);
-        return (float)gps;
+        BigNumber growthFactor = BigNumber.PowDouble(goldPerSecondGrowthRate, level - 1);
+        return baseGoldPerSecond * growthFactor;
     }
 
     /// <summary>
     /// fromLevel에서 시작해 levels번 연속 레벨업할 때 드는 총 비용 (미리보기 전용, 상태 변경 없음).
     /// +10/MAX 버튼에 표시할 "실제 총 비용" 계산에 사용.
     /// </summary>
-    public long GetLevelUpCostForLevels(int fromLevel, int levels)
+    public BigNumber GetLevelUpCostForLevels(int fromLevel, int levels)
     {
-        if (levels <= 0) return 0;
+        if (levels <= 0) return BigNumber.Zero;
 
-        long total = 0;
+        BigNumber total = BigNumber.Zero;
         for (int i = 0; i < levels; i++)
         {
             total += GetLevelUpCost(fromLevel + i);
@@ -98,16 +103,16 @@ public class FlowerData : ScriptableObject
     /// +10(상한 계산)/MAX 버튼 표시에 사용. 밸런스 데이터 오류(성장률 1 이하 등)로 인한
     /// 무한루프를 막기 위한 안전 상한을 둔다.
     /// </summary>
-    public int GetMaxAffordableLevels(int fromLevel, double gold)
+    public int GetMaxAffordableLevels(int fromLevel, BigNumber gold)
     {
         const int SAFETY_CAP = 100000;
 
         int levels = 0;
-        double remaining = gold;
+        BigNumber remaining = gold;
 
         while (levels < SAFETY_CAP)
         {
-            long cost = GetLevelUpCost(fromLevel + levels);
+            BigNumber cost = GetLevelUpCost(fromLevel + levels);
             if (cost > remaining) break;
 
             remaining -= cost;

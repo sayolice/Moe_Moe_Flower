@@ -49,6 +49,81 @@ public static class NumberFormatUtil
         return sign + body + Suffixes[tier];
     }
 
+    /// <summary>
+    /// BigNumber 전용 오버로드 — double이 감당 못 하는(약 10^308 초과) 값도 여기로 들어온다.
+    /// double.Format처럼 1000배씩 나눠가는 방식은 이런 값에서 무한루프/Infinity가 되므로 쓸 수 없고,
+    /// 대신 BigNumber가 이미 들고 있는 (가수, 지수)를 3의 배수 단위로 재배치해서 같은 접미사 표를 쓴다.
+    /// 접미사 표 범위(Dc, 10^36 미만)를 넘어서면 "1.23e123" 같은 지수 표기로 자연스럽게 전환된다.
+    /// </summary>
+    public static string Format(BigNumber value)
+    {
+        if (value.mantissa == 0) return "0";
+
+        // 표 범위 안(대략 10^36 미만)이면 double 경로로 그대로 위임 — 축약 규칙을 하나로 유지한다.
+        if (value.exponent < Suffixes.Length * 3L && value.exponent > -Suffixes.Length * 3L)
+            return Format(value.ToDouble());
+
+        bool isNegative = value.mantissa < 0;
+        string sign = isNegative ? "-" : "";
+        double mantissa = isNegative ? -value.mantissa : value.mantissa;
+        long exponent = value.exponent;
+
+        int tier = (int)(exponent / 3);
+        int remainder = (int)(exponent % 3);
+        if (remainder < 0) { remainder += 3; tier -= 1; } // 음수 지수의 나머지를 0~2로 정규화
+
+        // remainder만큼 소수점을 오른쪽으로 옮겨 "그 tier 안에서의 값"(1~999.99...)으로 만든다.
+        double scaled = mantissa * System.Math.Pow(10, remainder);
+
+        if (tier >= 0 && tier < Suffixes.Length)
+        {
+            string body = scaled < 10d ? scaled.ToString("0.##")
+                         : scaled < 100d ? scaled.ToString("0.#")
+                         : scaled.ToString("0");
+            return sign + body + Suffixes[tier];
+        }
+
+        // 접미사 표를 완전히 벗어난 천문학적인 값 — 과학적 표기로 대체(방치형 게임 후반 관례).
+        return sign + value.mantissa.ToString("0.##") + "e" + exponent;
+    }
+
     /// <summary> Format()에 "G"를 붙인 골드 전용 표기. 예: "1.23M G". </summary>
     public static string FormatGold(double value) => Format(value) + " G";
+
+    /// <summary> BigNumber 버전의 FormatGold. </summary>
+    public static string FormatGold(BigNumber value) => Format(value) + " G";
+
+    /// <summary>
+    /// Format()과 같은 축약 규칙을 쓰되, 1000 미만도 소수점을 보여준다.
+    ///
+    /// [왜 필요한가] Format()은 1000 미만을 그냥 정수로 버림한다(누적 골드 총액처럼 "딱 떨어지는
+    /// 정수로 보여도 되는" 값에는 맞는 선택). 하지만 G/s나 스탯 강화량 같은 "증가분·비율" 값은
+    /// 1 미만인 게 정상이라(예: 레벨 1 자동 애정 0.5, 레벨업 1회당 G/s 증가분 0.15), Format()으로
+    /// 찍으면 전부 "0"으로 뭉개져서 강화를 해도 아무것도 안 오르는 것처럼 보인다 — 이 버그 때문에
+    /// 새로 만들었다. 1000 이상이면 어차피 소수점 유무가 체감상 중요하지 않으므로 Format()과 동일하게
+    /// 축약한다.
+    /// </summary>
+    public static string FormatPrecise(double value)
+    {
+        if (double.IsNaN(value)) return "0";
+
+        bool isNegative = value < 0;
+        double abs = isNegative ? -value : value;
+        string sign = isNegative ? "-" : "";
+
+        if (double.IsPositiveInfinity(abs)) return sign + "매우 큼";
+        if (abs >= 1000d) return Format(value);
+
+        string body = abs < 10d ? abs.ToString("0.##")
+                     : abs < 100d ? abs.ToString("0.#")
+                     : abs.ToString("0");
+        return sign + body;
+    }
+
+    /// <summary> BigNumber 버전의 FormatPrecise. 1000 이상이면 Format(BigNumber)로 위임한다. </summary>
+    public static string FormatPrecise(BigNumber value)
+    {
+        if (value.exponent >= 3) return Format(value);
+        return FormatPrecise(value.ToDouble()); // exponent < 3이면 |value| < 1000이라 double 범위 안에서 항상 안전
+    }
 }

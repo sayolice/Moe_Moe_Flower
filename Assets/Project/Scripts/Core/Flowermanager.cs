@@ -33,6 +33,13 @@ public class FlowerManager : MonoBehaviour
     public event Action OnOwnedFlowersChanged;
     /// <summary> 특정 꽃의 유대 레벨이 올랐을 때 발생 (flowerId, newBondLevel). 연출/메모리얼 뱃지용. </summary>
     public event Action<string, int> OnBondLevelUp;
+    /// <summary>
+    /// 터치로 골드를 얻을 때마다 발생 (얻은 양). UIManager가 "골드 +n/s" 표시에 잠깐 반영해 애정처럼
+    /// 터치에 반응하는 느낌을 준다 — 단, totalGold를 직접 측정하지 않고 이 이벤트로만 반영하므로
+    /// 레벨업 등 골드 소비 이벤트가 이 표시를 오염시키지 않는다(예전 "0/s에 고정" 버그가 바로
+    /// totalGold 자체를 측정해서 생겼던 문제라 같은 실수를 반복하지 않기 위함).
+    /// </summary>
+    public event Action<BigNumber> OnTouchGoldGranted;
 
     /// <summary>
     /// 지금 적용 중인 유대 밸런스 데이터. bondData를 인스펙터에서 비워둬도(에셋 미배치) BondData
@@ -92,7 +99,7 @@ public class FlowerManager : MonoBehaviour
             FlowerData data = GetFlowerData(instance.flowerId);
             if (data == null) continue;
 
-            float gps = GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel);
+            BigNumber gps = GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel);
             GameManager.Instance.AddGold(gps * dt);
         }
 
@@ -100,7 +107,7 @@ public class FlowerManager : MonoBehaviour
         // (터치 애정과 달리 현재 표시 중인 꽃 하나로 한정하지 않음 — PlayerStatManager 요구사항)
         // 연꽃(AutoAffectionBonusFlat)이 있으면 PlayerStat과 별개로 고정치를 더한다.
         {
-            float autoAffection = GetEffectiveAutoAffectionRate();
+            double autoAffection = GetEffectiveAutoAffectionRate();
 
             if (autoAffection > 0f)
             {
@@ -123,11 +130,14 @@ public class FlowerManager : MonoBehaviour
     /// Update()(온라인)와 ApplyOfflineProgress()(오프라인), 그리고 UI의 개화 예상 시간 계산까지
     /// 전부 이 메서드 하나만 호출하도록 통일해서, 세 곳의 계산식이 서로 어긋날 여지를 없앤다.
     /// </summary>
-    public float GetEffectiveAutoAffectionRate()
+    public double GetEffectiveAutoAffectionRate()
     {
-        float rate = PlayerStatManager.Instance != null
-            ? PlayerStatManager.Instance.GetCurrentValue(PlayerStatType.AutoAffection)
-            : 0f;
+        // PlayerStatManager.GetCurrentValue는 BigNumber를 반환한다(터치 골드와 같은 경로를 공유하기
+        // 때문 — 터치 골드는 총 골드에 더해지므로 상한이 없어야 한다). 자동 애정은 currentAffection
+        // (개화하면 더 안 자라는, 설계상 상한이 있는 값)에만 쓰이므로 여기서 double로 좁혀도 안전하다.
+        double rate = PlayerStatManager.Instance != null
+            ? PlayerStatManager.Instance.GetCurrentValue(PlayerStatType.AutoAffection).ToDouble()
+            : 0;
         if (PassiveManager.Instance != null)
             rate += PassiveManager.Instance.GetFlatBonusTotal(PassiveEffectType.AutoAffectionBonusFlat);
         return rate;
@@ -136,29 +146,29 @@ public class FlowerManager : MonoBehaviour
     // ===== 패시브 반영 "실효" 비용 계산 (전역 할인은 FlowerData 혼자 모르므로 여기서 감싼다) =====
 
     /// <summary> 씨앗가에 전역 할인 패시브(튤립)를 반영한 실제 구매 가격. </summary>
-    public long GetEffectiveSeedPrice(FlowerData data)
+    public BigNumber GetEffectiveSeedPrice(FlowerData data)
     {
         float multiplier = PassiveManager.Instance != null
             ? PassiveManager.Instance.GetTotalMultiplier(PassiveEffectType.SeedPriceDiscountPercent)
             : 1f;
-        return (long)(data.seedPrice * multiplier);
+        return BigNumber.FromDouble(data.seedPrice) * multiplier;
     }
 
     /// <summary> 레벨업 비용에 전역 할인 패시브(장미)를 반영한 실제 비용(레벨 1개). </summary>
-    public long GetEffectiveLevelUpCost(FlowerData data, int level)
+    public BigNumber GetEffectiveLevelUpCost(FlowerData data, int level)
     {
         float multiplier = PassiveManager.Instance != null
             ? PassiveManager.Instance.GetTotalMultiplier(PassiveEffectType.LevelUpCostDiscountPercent)
             : 1f;
-        return (long)(data.GetLevelUpCost(level) * multiplier);
+        return data.GetLevelUpCost(level) * multiplier;
     }
 
     /// <summary> GetEffectiveLevelUpCost의 다중 레벨 합산판 (+10/MAX 미리보기용). </summary>
-    public long GetEffectiveLevelUpCostForLevels(FlowerData data, int fromLevel, int levels)
+    public BigNumber GetEffectiveLevelUpCostForLevels(FlowerData data, int fromLevel, int levels)
     {
-        if (levels <= 0) return 0;
+        if (levels <= 0) return BigNumber.Zero;
 
-        long total = 0;
+        BigNumber total = BigNumber.Zero;
         for (int i = 0; i < levels; i++)
             total += GetEffectiveLevelUpCost(data, fromLevel + i);
         return total;
@@ -174,7 +184,7 @@ public class FlowerManager : MonoBehaviour
     /// 알 수 없는 값이라 인자로 받는다) — 패시브 전역 배율과 달리 유대 배율은 그 꽃 하나에만
     /// 적용되므로 FlowerManager가 전역으로 조회할 수 없다.
     /// </summary>
-    public float GetEffectiveGoldPerSecond(FlowerData data, int level, int bondLevel)
+    public BigNumber GetEffectiveGoldPerSecond(FlowerData data, int level, int bondLevel)
     {
         float passiveMultiplier = PassiveManager.Instance != null
             ? PassiveManager.Instance.GetTotalMultiplier(PassiveEffectType.GoldPerSecondBonusPercent)
@@ -207,9 +217,9 @@ public class FlowerManager : MonoBehaviour
     /// 이 메서드는 골드 잔액 변화를 전혀 보지 않고 "꽃 상태(개화 여부·레벨)"만으로 매번 새로 계산하므로,
     /// 골드가 어떻게 오르내리든 절대 왜곡되지 않는다 — Update()의 실제 골드 지급 루프와 동일한 계산.
     /// </summary>
-    public float GetTotalGoldPerSecond()
+    public BigNumber GetTotalGoldPerSecond()
     {
-        float total = 0f;
+        BigNumber total = BigNumber.Zero;
         foreach (var kvp in ownedFlowers)
         {
             FlowerInstance instance = kvp.Value;
@@ -224,16 +234,16 @@ public class FlowerManager : MonoBehaviour
     }
 
     /// <summary> GetEffectiveLevelUpCost 기준으로 주어진 골드로 몇 레벨까지 오를 수 있는지 (+10/MAX 미리보기용). </summary>
-    public int GetEffectiveMaxAffordableLevels(FlowerData data, int fromLevel, double gold)
+    public int GetEffectiveMaxAffordableLevels(FlowerData data, int fromLevel, BigNumber gold)
     {
         const int SAFETY_CAP = 100000;
 
         int levels = 0;
-        double remaining = gold;
+        BigNumber remaining = gold;
 
         while (levels < SAFETY_CAP)
         {
-            long cost = GetEffectiveLevelUpCost(data, fromLevel + levels);
+            BigNumber cost = GetEffectiveLevelUpCost(data, fromLevel + levels);
             if (cost > remaining) break;
 
             remaining -= cost;
@@ -280,6 +290,21 @@ public class FlowerManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 데이터 초기화(설정 화면 전용) — 보유 꽃을 전부 비우고, Start()의 최초 튜토리얼 지급과 동일한
+    /// 로직(TryPurchaseSeed)으로 도감 첫 꽃만 다시 지급한다. 재시작 없이 즉시 초반부터 다시 테스트할
+    /// 수 있어야 하므로, 세이브 파일 삭제와 별개로 지금 실행 중인 상태 자체를 여기서 되돌린다.
+    /// </summary>
+    public void ResetToFreshStart()
+    {
+        ownedFlowers.Clear();
+        currentDisplayedFlowerId = null;
+        OnOwnedFlowersChanged?.Invoke();
+
+        if (allFlowers.Count > 0)
+            TryPurchaseSeed(allFlowers[0].flowerId);
+    }
+
     public FlowerData GetCurrentData() => GetFlowerData(currentDisplayedFlowerId);
     public FlowerInstance GetCurrentInstance() => GetInstance(currentDisplayedFlowerId);
 
@@ -300,7 +325,7 @@ public class FlowerManager : MonoBehaviour
         var result = new OfflineSettlementResult { elapsedSeconds = elapsedSeconds };
         if (elapsedSeconds <= 0 || GameManager.Instance == null) return result;
 
-        double totalGold = 0;
+        BigNumber totalGold = BigNumber.Zero;
         double remainingTime = elapsedSeconds;
 
         // 반복 횟수는 이론상 "이번 정산 중 개화하는 꽃의 수"만큼만 필요하므로, 보유 꽃 수보다
@@ -308,7 +333,7 @@ public class FlowerManager : MonoBehaviour
         const int SAFETY_CAP = 10000;
         for (int iteration = 0; remainingTime > 0 && iteration < SAFETY_CAP; iteration++)
         {
-            float autoAffectionRate = GetEffectiveAutoAffectionRate();
+            double autoAffectionRate = GetEffectiveAutoAffectionRate();
 
             // 이번 구간의 길이 = 지금 배율 기준으로 "다음에 가장 먼저 개화하는 꽃까지 걸리는 시간"
             // (아무도 그 전에 개화하지 않으면 남은 시간 전체가 한 구간).
@@ -347,7 +372,7 @@ public class FlowerManager : MonoBehaviour
                 // 기존 개화 로직(AddAffection)을 그대로 태운다 — 임계치를 넘기면 그 안에서 isBloomed=true로
                 // 전환되고, 다음 반복의 GetEffectiveAutoAffectionRate()/GetEffectiveGoldPerSecond() 호출이
                 // PassiveManager를 통해 이 변화를 즉시 반영한다.
-                AddAffection(instance, data, (float)(autoAffectionRate * segmentDuration));
+                AddAffection(instance, data, autoAffectionRate * segmentDuration);
                 if (instance.isBloomed)
                     result.newlyBloomedFlowerIds.Add(instance.flowerId);
             }
@@ -363,10 +388,13 @@ public class FlowerManager : MonoBehaviour
         // GetEffectiveGoldPerSecond가 이미 온라인과 동일한 계산식(해바라기 G/s 보너스 포함)을 썼으므로
         // totalGold는 그 자체로 정확한 오프라인 정산 결과다. 여기서 또 배율을 곱하면 100%를 초과해서
         // "앱을 꺼두는 게 이득"이라는 모순이 재발한다.
-        if (totalGold > 0)
+        if (totalGold > BigNumber.Zero)
         {
             GameManager.Instance.AddGold(totalGold);
-            result.goldEarned = totalGold;
+            // goldEarned는 팝업 표시 전용(계산에 재사용되지 않음)이라 double로 좁혀도 안전하다 —
+            // 정말 double 한계를 넘는 극단적인 경우엔 큰 수로 보이거나 무한대로 보일 뿐, 골드
+            // 자체(totalGold, BigNumber)는 이미 정확히 더해진 뒤라 게임 진행엔 영향이 없다.
+            result.goldEarned = totalGold.ToDouble();
         }
 
         return result;
@@ -419,11 +447,11 @@ public class FlowerManager : MonoBehaviour
 
         int paidGained = 0;
         int freeGained = 0;
-        long totalGoldSpent = 0;
+        BigNumber totalGoldSpent = BigNumber.Zero;
 
         while (paidGained < maxLevels)
         {
-            long cost = GetEffectiveLevelUpCost(data, instance.currentLevel);
+            BigNumber cost = GetEffectiveLevelUpCost(data, instance.currentLevel);
             if (!GameManager.Instance.TrySpendGold(cost)) break; // 골드 부족 시 여기서 중단
 
             totalGoldSpent += cost;
@@ -442,8 +470,8 @@ public class FlowerManager : MonoBehaviour
         // 라벤더: 이번 레벨업 "작업" 전체(실제 지불한 골드 총액)에 대해 1회 환급 판정.
         if (paidGained > 0 && PassiveManager.Instance != null)
         {
-            long refund = PassiveManager.Instance.RollLevelUpRefund(totalGoldSpent);
-            if (refund > 0) GameManager.Instance.AddGold(refund);
+            BigNumber refund = PassiveManager.Instance.RollLevelUpRefund(totalGoldSpent);
+            if (refund > BigNumber.Zero) GameManager.Instance.AddGold(refund);
         }
 
         int totalGained = paidGained + freeGained;
@@ -468,21 +496,25 @@ public class FlowerManager : MonoBehaviour
         FlowerData data = GetCurrentData();
         if (instance == null || data == null) return;
 
-        // 골드는 조건 없이 클릭 시 항상 증가
-        float touchGold = PlayerStatManager.Instance != null
+        // 골드는 조건 없이 클릭 시 항상 증가. BigNumber인 이유는 GetCurrentValue와 동일
+        // (터치 골드도 레벨에 지수적으로 비례해 상한 없이 커지고, 총 골드에 더해지기 때문).
+        BigNumber touchGold = PlayerStatManager.Instance != null
             ? PlayerStatManager.Instance.GetCurrentValue(PlayerStatType.TouchGold)
-            : 0f;
+            : BigNumber.Zero;
 
         if (PassiveManager.Instance != null)
             touchGold += PassiveManager.Instance.RollAnyFlowerTouchBonus(PassiveEffectType.TouchGoldExtraChance, touchGold);
 
         GameManager.Instance.AddGold(touchGold);
+        OnTouchGoldGranted?.Invoke(touchGold);
 
         if (!instance.isBloomed)
         {
-            float touchAffection = PlayerStatManager.Instance != null
-                ? PlayerStatManager.Instance.GetCurrentValue(PlayerStatType.TouchAffection)
-                : 0f;
+            // 터치 애정은 currentAffection(개화하면 더 안 자라는, 상한 있는 값)에만 쓰이므로
+            // double로 좁혀도 안전하다(GetEffectiveAutoAffectionRate와 동일한 이유).
+            double touchAffection = PlayerStatManager.Instance != null
+                ? PlayerStatManager.Instance.GetCurrentValue(PlayerStatType.TouchAffection).ToDouble()
+                : 0;
 
             if (PassiveManager.Instance != null)
                 touchAffection += PassiveManager.Instance.RollAnyUnbloomedTouchBonus(instance, PassiveEffectType.TouchAffectionExtraChance, touchAffection);
@@ -502,13 +534,22 @@ public class FlowerManager : MonoBehaviour
             float supportBonus = PassiveManager.Instance.RollSupportTouchBonus(instance);
             if (supportBonus > 0f)
             {
-                if (instance.isBloomed) GameManager.Instance.AddGold(supportBonus);
+                if (instance.isBloomed)
+                {
+                    GameManager.Instance.AddGold(supportBonus);
+                    OnTouchGoldGranted?.Invoke(supportBonus);
+                }
                 else AddAffection(instance, data, supportBonus);
             }
         }
     }
 
-    private void AddAffection(FlowerInstance instance, FlowerData data, float amount)
+    /// <summary>
+    /// amount가 double인 것이 중요하다 — 자동 애정은 매 프레임 `rate * deltaTime`이라는 아주 작은
+    /// 값을 더하는데, 여기서 float으로 좁히면 currentAffection이 커진 뒤(수백만 이상)에는 그 증가분이
+    /// 통째로 반올림되어 사라진다(FlowerInstance.currentAffection 주석의 정밀도 설명 참고).
+    /// </summary>
+    private void AddAffection(FlowerInstance instance, FlowerData data, double amount)
     {
         if (instance.isBloomed) return;
 

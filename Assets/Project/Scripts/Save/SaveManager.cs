@@ -115,10 +115,10 @@ public class SaveManager : MonoBehaviour
 
         SaveData data = new SaveData
         {
-            totalGold = GameManager.Instance.totalGold,
             currentDisplayedFlowerId = FlowerManager.Instance.CurrentDisplayedFlowerId,
             lastSaveTimeTicksUtc = DateTime.UtcNow.Ticks
         };
+        WriteGoldToSaveData(data, GameManager.Instance.totalGold);
 
         foreach (FlowerInstance instance in FlowerManager.Instance.GetAllOwnedInstances())
             data.flowers.Add(new FlowerSaveEntry(instance));
@@ -159,7 +159,7 @@ public class SaveManager : MonoBehaviour
         try
         {
             if (GameManager.Instance != null)
-                GameManager.Instance.SetGold(data.totalGold);
+                GameManager.Instance.SetGold(ReadGoldFromSaveData(data));
 
             List<FlowerInstance> loadedFlowers = data.flowers.Select(f => f.ToInstance()).ToList();
             if (FlowerManager.Instance != null)
@@ -183,6 +183,47 @@ public class SaveManager : MonoBehaviour
     }
 
     /// <summary>
+    /// 데이터 초기화(설정 화면 전용, 반드시 확인 절차를 거친 뒤 호출되어야 함) — 세이브 파일을
+    /// 지우고, 실행 중인 모든 매니저를 "최초 실행" 상태로 직접 되돌린다. 디스크 삭제만으로 끝내면
+    /// 껐다 켤 때까지 화면은 그대로라 "초반부터 다시 테스트"가 안 되므로, 재시작 없이 즉시
+    /// 반영되도록 GameManager/FlowerManager/PlayerStatManager를 전부 리셋한다.
+    /// isLoading 가드를 쓰는 이유는 Load() 때와 동일 — 리셋 중 발생하는 OnOwnedFlowersChanged 등이
+    /// SaveUnlessLoading을 통해 리셋 도중 상태를 다시 저장해버리는 것을 막기 위함이다.
+    /// </summary>
+    public void ResetAllData()
+    {
+        try
+        {
+            if (File.Exists(SavePath)) File.Delete(SavePath);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[SaveManager] 세이브 파일 삭제 실패: {e}");
+        }
+
+        isLoading = true;
+        try
+        {
+            if (GameManager.Instance != null)
+                GameManager.Instance.SetGold(BigNumber.Zero);
+
+            if (FlowerManager.Instance != null)
+                FlowerManager.Instance.ResetToFreshStart();
+
+            if (PlayerStatManager.Instance != null)
+                PlayerStatManager.Instance.ResetToStartingLevels();
+
+            autoSaveTimer = 0f;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+
+        Save(); // 리셋된 "새 게임" 상태를 즉시 저장해서, 지금 껐다 켜도 초기화가 유지되게 한다
+    }
+
+    /// <summary>
     /// 마지막 저장 시각(UTC) 이후 경과 시간(초). 기기 로컬 타임존이 바뀌어도 영향받지 않도록
     /// 항상 UTC 기준으로 계산하고, 시스템 시계가 되돌아간 경우 등 음수가 나오면 0으로 처리한다.
     /// </summary>
@@ -193,5 +234,43 @@ public class SaveManager : MonoBehaviour
         DateTime lastSaveUtc = new DateTime(lastSaveTicksUtc, DateTimeKind.Utc);
         double elapsedSeconds = (DateTime.UtcNow - lastSaveUtc).TotalSeconds;
         return elapsedSeconds > 0 ? elapsedSeconds : 0;
+    }
+
+    /// <summary>
+    /// 골드(BigNumber)를 세이브 데이터에 담는다. double 범위(약 10^308) 안이면 예전과 같은 방식
+    /// (totalGold 필드에 순수 숫자)으로 쓰고, 그걸 넘는 값만 정확한 (가수, 지수) 쌍으로 담는다 —
+    /// 이 게임이 실제로 그 상한에 도달할 일은 사실상 없지만, BigNumber를 도입한 목적 자체가
+    /// "그 상한에 도달해도 안전해야 한다"는 것이므로 저장 경로도 끝까지 정확해야 의미가 있다.
+    /// </summary>
+    private void WriteGoldToSaveData(SaveData data, BigNumber gold)
+    {
+        double asDouble = gold.ToDouble();
+        if (!double.IsInfinity(asDouble) && !double.IsNaN(asDouble))
+        {
+            data.totalGold = asDouble;
+            data.totalGoldExceedsDouble = false;
+            data.totalGoldMantissa = 0;
+            data.totalGoldExponent = 0;
+        }
+        else
+        {
+            data.totalGold = 0;
+            data.totalGoldExceedsDouble = true;
+            data.totalGoldMantissa = gold.mantissa;
+            data.totalGoldExponent = gold.exponent;
+        }
+    }
+
+    /// <summary>
+    /// WriteGoldToSaveData의 반대. totalGoldExceedsDouble이 없는(=false인) 예전 세이브 파일은
+    /// 자동으로 이 값이 false이므로, 그런 경우 항상 totalGold(예전 방식 그대로의 순수 숫자) 필드를
+    /// 읽는다 — 하위 호환이 필드 이름 하나 안 바꾸는 것만으로 자연스럽게 유지된다.
+    /// </summary>
+    private BigNumber ReadGoldFromSaveData(SaveData data)
+    {
+        if (data.totalGoldExceedsDouble)
+            return new BigNumber(data.totalGoldMantissa, data.totalGoldExponent);
+
+        return BigNumber.FromDouble(data.totalGold);
     }
 }

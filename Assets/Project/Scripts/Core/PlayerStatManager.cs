@@ -44,31 +44,35 @@ public class PlayerStatManager : MonoBehaviour
     public int GetLevel(PlayerStatType type) =>
         instances.TryGetValue(type, out PlayerStatInstance inst) ? inst.currentLevel : 0;
 
-    /// <summary> 해당 스탯의 현재 실제 값 (예: 클릭 1회당 애정량, 초당 자동 애정량). </summary>
-    public float GetCurrentValue(PlayerStatType type)
+    /// <summary>
+    /// 해당 스탯의 현재 실제 값 (예: 클릭 1회당 애정량, 초당 자동 애정량). BigNumber인 이유는
+    /// TouchGold가 이 경로를 공유하기 때문 — 터치 골드는 총 골드에 더해지므로 상한이 없어야 한다
+    /// (FlowerManager.GetEffectiveGoldPerSecond와 같은 이유. BigNumber.cs 참고).
+    /// </summary>
+    public BigNumber GetCurrentValue(PlayerStatType type)
     {
         PlayerStatData data = GetData(type);
-        if (data == null) return 0f;
+        if (data == null) return BigNumber.Zero;
         return data.GetValue(GetLevel(type));
     }
 
-    public long GetUpgradeCost(PlayerStatType type)
+    public BigNumber GetUpgradeCost(PlayerStatType type)
     {
         PlayerStatData data = GetData(type);
-        if (data == null) return 0;
+        if (data == null) return BigNumber.Zero;
         return data.GetUpgradeCost(GetLevel(type));
     }
 
     /// <summary> GetUpgradeCost의 다중 레벨 합산판 (+10/MAX 미리보기용). </summary>
-    public long GetUpgradeCostForLevels(PlayerStatType type, int levels)
+    public BigNumber GetUpgradeCostForLevels(PlayerStatType type, int levels)
     {
         PlayerStatData data = GetData(type);
-        if (data == null) return 0;
+        if (data == null) return BigNumber.Zero;
         return data.GetUpgradeCostForLevels(GetLevel(type), levels);
     }
 
     /// <summary> 현재 레벨 기준으로 주어진 골드로 몇 레벨까지 강화할 수 있는지 (+10/MAX 미리보기용). </summary>
-    public int GetMaxAffordableLevels(PlayerStatType type, double gold)
+    public int GetMaxAffordableLevels(PlayerStatType type, BigNumber gold)
     {
         PlayerStatData data = GetData(type);
         if (data == null) return 0;
@@ -89,7 +93,7 @@ public class PlayerStatManager : MonoBehaviour
         int gained = 0;
         while (gained < levels)
         {
-            long cost = data.GetUpgradeCost(instance.currentLevel);
+            BigNumber cost = data.GetUpgradeCost(instance.currentLevel);
             if (!GameManager.Instance.TrySpendGold(cost)) break;
 
             instance.currentLevel++;
@@ -104,6 +108,17 @@ public class PlayerStatManager : MonoBehaviour
 
     /// <summary> 기존 단일 강화 API (하위 호환용). 새 코드는 TryUpgradeBy(type, 1)을 직접 사용해도 된다. </summary>
     public bool TryUpgrade(PlayerStatType type) => TryUpgradeBy(type, 1) > 0;
+
+    /// <summary> 데이터 초기화(설정 화면 전용) — 모든 스탯을 각자의 startingLevel로 되돌린다. </summary>
+    public void ResetToStartingLevels()
+    {
+        foreach (StatEntry entry in statEntries)
+        {
+            if (entry.data == null) continue;
+            if (instances.TryGetValue(entry.type, out PlayerStatInstance instance))
+                instance.currentLevel = entry.data.startingLevel;
+        }
+    }
 
     /// <summary> 세이브 저장 전용: 현재 모든 스탯의 레벨을 스냅샷으로 반환한다. </summary>
     public List<PlayerStatSaveEntry> GetAllLevelsForSave()

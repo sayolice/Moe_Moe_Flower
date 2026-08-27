@@ -3,13 +3,17 @@ using UnityEngine;
 /// <summary>
 /// 전역 골드 관리자. 골드 총량과 증감만 담당한다.
 /// 터치애정/터치골드/자동애정은 PlayerStatManager로 분리되어 있다 (이 클래스는 그 시스템을 모른다).
+///
+/// [BigNumber인 이유] 골드는 유일하게 상한이 없는 값이다 — G/s와 레벨업 비용이 전부 "레벨"에
+/// 지수적으로 비례하는데 레벨엔 상한이 없으므로, 오래 플레이할수록 골드는 결국 double의 한계
+/// (약 10^308)에도 도달한다. int→float→double로 이어진 오버플로우를 이번엔 근본적으로 끝내기
+/// 위해 BigNumber(가수×10^지수, 사실상 무한 범위)를 쓴다. 자세한 설계 배경은 BigNumber.cs 참고.
 /// </summary>
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
 
-    [Header("골드")]
-    public double totalGold = 0;
+    public BigNumber totalGold = BigNumber.Zero;
 
     private void Awake()
     {
@@ -22,16 +26,16 @@ public class GameManager : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
-    public void AddGold(double amount)
+    public void AddGold(BigNumber amount)
     {
         totalGold += amount;
         // TODO: UI 골드 표시 갱신 이벤트 연결
     }
 
     /// <summary> 세이브 불러오기 전용: 골드를 저장된 값으로 직접 덮어쓴다. </summary>
-    public void SetGold(double amount) => totalGold = amount;
+    public void SetGold(BigNumber amount) => totalGold = amount;
 
-    public bool TrySpendGold(double amount)
+    public bool TrySpendGold(BigNumber amount)
     {
         if (totalGold < amount) return false;
         totalGold -= amount;

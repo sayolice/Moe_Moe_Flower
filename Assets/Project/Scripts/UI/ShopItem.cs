@@ -36,8 +36,8 @@ public class ShopItem : MonoBehaviour
         buyButton.interactable = !owned;
 
         // 씨앗가 전역 할인 패시브(튤립)가 있으면 매 프레임 최신 할인가로 갱신될 수 있으므로 여기서 표시
-        long effectivePrice = FlowerManager.Instance.GetEffectiveSeedPrice(flowerData);
-        priceText.text = effectivePrice == 0 ? "무료" : NumberFormatUtil.FormatGold(effectivePrice);
+        BigNumber effectivePrice = FlowerManager.Instance.GetEffectiveSeedPrice(flowerData);
+        priceText.text = effectivePrice == BigNumber.Zero ? "무료" : NumberFormatUtil.FormatGold(effectivePrice);
     }
 
     private void OnBuyClicked()

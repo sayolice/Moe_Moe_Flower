@@ -88,7 +88,9 @@ public class OfflineSummaryPopup : MonoBehaviour
     /// </summary>
     private string BuildGoldEarnedText(double goldEarned)
     {
-        double goldAfter = GameManager.Instance != null ? GameManager.Instance.totalGold : goldEarned;
+        // GameManager.totalGold는 BigNumber지만, 이 팝업은 표시 전용이라 double로 좁혀도 안전하다
+        // (goldEarned 자체도 Flowermanager.ApplyOfflineProgress에서 이미 double로 좁혀 온 값).
+        double goldAfter = GameManager.Instance != null ? GameManager.Instance.totalGold.ToDouble() : goldEarned;
         double goldBefore = goldAfter - goldEarned;
 
         return $"{NumberFormatUtil.FormatGold(goldBefore)} → {NumberFormatUtil.FormatGold(goldAfter)} (+{NumberFormatUtil.FormatGold(goldEarned)})";

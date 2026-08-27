@@ -25,12 +25,16 @@ public class PlayerStatData : ScriptableObject
     public long upgradeBaseCost;
     public float upgradeCostGrowthRate = 1.20f;
 
+    // [BigNumber인 이유] FlowerData의 동일 계산 함수들과 같은 이유 — 레벨엔 상한이 없고
+    // valueGrowthRate/upgradeCostGrowthRate가 매 레벨 곱해지는 지수 함수라, 결과값은 오래
+    // 플레이할수록 결국 long/float의 한계에도 도달한다.
+
     /// <summary> 특정 레벨에서의 실제 값. Lv.0 이하는 아직 강화 전이므로 0을 반환한다. </summary>
-    public float GetValue(int level)
+    public BigNumber GetValue(int level)
     {
-        if (level <= 0) return 0f;
-        double value = baseValue * System.Math.Pow(valueGrowthRate, level - 1);
-        return (float)value;
+        if (level <= 0) return BigNumber.Zero;
+        BigNumber growthFactor = BigNumber.PowDouble(valueGrowthRate, level - 1);
+        return baseValue * growthFactor;
     }
 
     /// <summary>
@@ -38,21 +42,21 @@ public class PlayerStatData : ScriptableObject
     /// currentLevel == startingLevel일 때 upgradeBaseCost가 그대로 나오도록,
     /// 지수 계산 기준을 startingLevel로 잡는다 (자동 애정처럼 시작 레벨이 0인 경우에도 동일한 의미 유지).
     /// </summary>
-    public long GetUpgradeCost(int currentLevel)
+    public BigNumber GetUpgradeCost(int currentLevel)
     {
-        double cost = upgradeBaseCost * System.Math.Pow(upgradeCostGrowthRate, currentLevel - startingLevel);
-        return (long)cost;
+        BigNumber growthFactor = BigNumber.PowDouble(upgradeCostGrowthRate, currentLevel - startingLevel);
+        return upgradeBaseCost * growthFactor;
     }
 
     /// <summary>
     /// fromLevel에서 시작해 levels번 연속 강화할 때 드는 총 비용 (미리보기 전용, 상태 변경 없음).
     /// FlowerData.GetLevelUpCostForLevels와 동일 원칙 — +10/MAX 버튼의 "실제 총 비용" 표시에 사용.
     /// </summary>
-    public long GetUpgradeCostForLevels(int fromLevel, int levels)
+    public BigNumber GetUpgradeCostForLevels(int fromLevel, int levels)
     {
-        if (levels <= 0) return 0;
+        if (levels <= 0) return BigNumber.Zero;
 
-        long total = 0;
+        BigNumber total = BigNumber.Zero;
         for (int i = 0; i < levels; i++)
         {
             total += GetUpgradeCost(fromLevel + i);
@@ -64,16 +68,16 @@ public class PlayerStatData : ScriptableObject
     /// fromLevel에서 시작해 주어진 골드로 몇 레벨까지 강화할 수 있는지 계산 (미리보기 전용, 상태 변경 없음).
     /// FlowerData.GetMaxAffordableLevels와 동일 원칙 — +10(상한 계산)/MAX 버튼 표시에 사용.
     /// </summary>
-    public int GetMaxAffordableLevels(int fromLevel, double gold)
+    public int GetMaxAffordableLevels(int fromLevel, BigNumber gold)
     {
         const int SAFETY_CAP = 100000;
 
         int levels = 0;
-        double remaining = gold;
+        BigNumber remaining = gold;
 
         while (levels < SAFETY_CAP)
         {
-            long cost = GetUpgradeCost(fromLevel + levels);
+            BigNumber cost = GetUpgradeCost(fromLevel + levels);
             if (cost > remaining) break;
 
             remaining -= cost;

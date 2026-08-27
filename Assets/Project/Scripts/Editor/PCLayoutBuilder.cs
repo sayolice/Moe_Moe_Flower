@@ -175,13 +175,20 @@ public static class PCLayoutBuilder
         // ── 유대 메모리얼 뷰 (Canvas 최상위, 도감과 동일한 전체 오버레이 방식) ──
         BuildMemorialViewPanel(canvasGO.transform);
 
-        // TopBar의 도감 열기 버튼을 FlowerDexPanel.openButton 필드에 연결한다.
+        // ── 설정 화면 (Canvas 최상위, 동일한 전체 오버레이 방식) ──
+        SettingsPanel settingsPanel = BuildSettingsPanel(canvasGO.transform);
+
+        // TopBar의 도감/설정 열기 버튼을 각 패널의 openButton 필드에 연결한다.
         // 여기서 onClick.AddListener를 직접 호출하지 않는 이유: 에디터 스크립트는 Play 모드 밖에서
         // 실행되므로 그렇게 붙인 리스너는 씬에 저장되지 않는다(런타임 전용 리스너). 필드만 연결해두면
-        // FlowerDexPanel.Start()가 실제 실행 시점에 스스로 AddListener하므로 항상 유효하다.
+        // 각 패널의 Start()가 실제 실행 시점에 스스로 AddListener하므로 항상 유효하다.
         Transform dexButtonTr = topBarGO.transform.Find("DexButton");
         if (dexButtonTr != null)
             dexPanel.openButton = dexButtonTr.GetComponent<Button>();
+
+        Transform settingsButtonTr = topBarGO.transform.Find("SettingsButton");
+        if (settingsButtonTr != null)
+            settingsPanel.openButton = settingsButtonTr.GetComponent<Button>();
 
         // ── 오프라인 정산 팝업 (Canvas 최상위 마지막 자식 = 항상 맨 위에 그려짐) ──
         BuildOfflineSummaryPopup(canvasGO.transform);
@@ -216,12 +223,12 @@ public static class PCLayoutBuilder
         SetupText(gGO, "골드 0", font, 24f, TextAlignmentOptions.Left,
                   new Vector2(0f, 0f), new Vector2(0.5f, 1f), new Vector2(16f, 0f), new Vector2(-8f, 0f));
 
-        // GoldPerSecondText (오른쪽 끝은 DexButton 자리만큼 비워둠)
+        // GoldPerSecondText (오른쪽 끝은 SettingsButton + DexButton 두 개 자리만큼 비워둠)
         Transform rTr = topBar.transform.Find("GoldPerSecondText");
         GameObject rGO = (rTr != null) ? rTr.gameObject : new GameObject("GoldPerSecondText");
         rGO.transform.SetParent(topBar.transform, false);
         SetupText(rGO, "골드 +0.0/s", font, 18f, TextAlignmentOptions.Right,
-                  new Vector2(0.5f, 0f), new Vector2(1f, 1f), new Vector2(8f, 0f), new Vector2(-70f, 0f));
+                  new Vector2(0.5f, 0f), new Vector2(1f, 1f), new Vector2(8f, 0f), new Vector2(-134f, 0f));
 
         // DexButton (도감 열기, 우측 끝 고정폭)
         Transform dexTr = topBar.transform.Find("DexButton");
@@ -247,6 +254,32 @@ public static class PCLayoutBuilder
         GameObject dexLabelGO = (dexLabelTr != null) ? dexLabelTr.gameObject : new GameObject("Label");
         dexLabelGO.transform.SetParent(dexGO.transform, false);
         SetupText(dexLabelGO, "도감", font, 16f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        // SettingsButton (설정 열기, DexButton 왼쪽에 같은 폭으로 붙임)
+        Transform settingsTr = topBar.transform.Find("SettingsButton");
+        GameObject settingsGO = (settingsTr != null) ? settingsTr.gameObject : new GameObject("SettingsButton");
+        settingsGO.transform.SetParent(topBar.transform, false);
+        RectTransform settingsRT = settingsGO.GetComponent<RectTransform>();
+        if (settingsRT == null) settingsRT = settingsGO.AddComponent<RectTransform>();
+        settingsRT.anchorMin = new Vector2(1f, 0f);
+        settingsRT.anchorMax = new Vector2(1f, 1f);
+        settingsRT.pivot = new Vector2(1f, 0.5f);
+        settingsRT.sizeDelta = new Vector2(55f, 0f);
+        settingsRT.anchoredPosition = new Vector2(-71f, 0f); // DexButton(-8~-63) 왼쪽에 8px 간격
+
+        Image settingsBg = settingsGO.GetComponent<Image>();
+        if (settingsBg == null) settingsBg = settingsGO.AddComponent<Image>();
+        settingsBg.color = new Color(0.3f, 0.3f, 0.35f, 1f);
+
+        Button settingsButton = settingsGO.GetComponent<Button>();
+        if (settingsButton == null) settingsButton = settingsGO.AddComponent<Button>();
+        settingsButton.targetGraphic = settingsBg;
+
+        Transform settingsLabelTr = settingsGO.transform.Find("Label");
+        GameObject settingsLabelGO = (settingsLabelTr != null) ? settingsLabelTr.gameObject : new GameObject("Label");
+        settingsLabelGO.transform.SetParent(settingsGO.transform, false);
+        SetupText(settingsLabelGO, "설정", font, 16f, TextAlignmentOptions.Center,
                   Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
     }
 
@@ -643,8 +676,7 @@ public static class PCLayoutBuilder
         headerLayout.spacing = 4f;
         headerLayout.padding = new RectOffset(8, 8, 6, 6);
 
-        FlowerSortSelector sortSelector = CreateSelectorButton<FlowerSortSelector>(
-            header.transform, "SortSelectorButton", "정렬: 도감순", font);
+        FlowerSortSelector sortSelector = CreateSortSelector(panel.transform, header.transform, font);
 
         LevelUpAmountSelector amountSelector = CreateSelectorButton<LevelUpAmountSelector>(
             header.transform, "AmountSelectorButton", "레벨업 단위: +1", font);
@@ -708,10 +740,16 @@ public static class PCLayoutBuilder
         upgradePanel.amountSelector = amountSelector;
         upgradePanel.sortSelector   = sortSelector;
 
+        // 정렬 펼침 목록이 방금 만든 "Scroll View"(꽃 목록)보다 항상 위에 그려지도록 마지막 형제로
+        // 옮긴다 — 그렇지 않으면 먼저 만들어진 목록이 나중에 만들어진 스크롤 뷰 밑에 깔려버린다
+        // (같은 부모 안에서는 나중 형제가 위에 그려지는 유니티 UI 규칙).
+        if (sortSelector.optionListRoot != null)
+            sortSelector.optionListRoot.transform.SetAsLastSibling();
+
         return panel;
     }
 
-    /// <summary> 정렬/레벨업단위 선택용 순환 버튼 하나를 만들고 T 컴포넌트를 부착해서 반환한다. </summary>
+    /// <summary> 레벨업단위(LevelUpAmountSelector) 선택용 순환 버튼 하나를 만들고 부착해서 반환한다. </summary>
     static T CreateSelectorButton<T>(Transform parent, string name, string initialLabel, TMP_FontAsset font) where T : Component
     {
         GameObject go = new GameObject(name);
@@ -732,9 +770,97 @@ public static class PCLayoutBuilder
 
         T selector = go.AddComponent<T>();
 
-        // FlowerSortSelector/LevelUpAmountSelector 둘 다 public TMP_Text label 필드를 가짐
         var labelField = typeof(T).GetField("label");
         labelField?.SetValue(selector, labelGO.GetComponent<TMP_Text>());
+
+        return selector;
+    }
+
+    /// <summary>
+    /// 정렬(FlowerSortSelector) 전용 — 순환 버튼 대신 "누르면 목록이 펼쳐지는" 형태로 만든다.
+    /// 모드가 7개로 늘면서 순환식은 최대 6번 눌러야 원하는 모드에 닿을 수 있어 불편했다.
+    /// 펼침 목록(optionListRoot)은 headerParent가 아니라 panelParent의 직계 자식으로 만든다 —
+    /// header는 VerticalLayoutGroup이 자식을 순서대로 쌓기 때문에, 그 안에 넣으면 목록이 "펼쳐지는"
+    /// 대신 다른 버튼을 밀어내는 레이아웃 변화가 되어버린다. panelParent에 바로 붙여야 아래 스크롤
+    /// 목록 위에 겹쳐서(오버레이) 뜬다 — 실제로 맨 위에 그려지도록 형제 순서를 맞추는 것은 호출부
+    /// (CreateFlowerUpgradePanel)가 SetAsLastSibling으로 마무리한다.
+    ///
+    /// SortModeLabels의 순서는 FlowerSortSelector.Order 배열과 반드시 인덱스가 일치해야 한다.
+    /// </summary>
+    static readonly string[] SortModeLabels = { "도감순", "가격↑", "가격↓", "레벨↑", "레벨↓", "효율순", "가성비순" };
+
+    static FlowerSortSelector CreateSortSelector(Transform panelParent, Transform headerParent, TMP_FontAsset font)
+    {
+        // ── 메인 토글 버튼 (헤더 안, 기존 순환 버튼과 같은 자리) ──
+        GameObject buttonGO = new GameObject("SortSelectorButton");
+        buttonGO.transform.SetParent(headerParent, false);
+        LayoutElement btnLE = buttonGO.AddComponent<LayoutElement>();
+        btnLE.preferredHeight = 34f;
+
+        Image btnImg = buttonGO.AddComponent<Image>();
+        btnImg.color = new Color(0.2f, 0.22f, 0.3f, 1f);
+
+        Button toggleButton = buttonGO.AddComponent<Button>();
+        toggleButton.targetGraphic = btnImg;
+
+        GameObject labelGO = new GameObject("Label");
+        labelGO.transform.SetParent(buttonGO.transform, false);
+        SetupText(labelGO, "정렬: 도감순", font, 16f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        // ── 펼침 목록 (panelParent 직계 자식, 기본 숨김) ──
+        const float rowHeight = 32f;
+        int optionCount = SortModeLabels.Length;
+
+        GameObject listRoot = new GameObject("SortOptionList");
+        listRoot.transform.SetParent(panelParent, false);
+        RectTransform listRT = listRoot.AddComponent<RectTransform>();
+        listRT.anchorMin = new Vector2(0f, 1f);
+        listRT.anchorMax = new Vector2(1f, 1f);
+        listRT.pivot = new Vector2(0.5f, 1f);
+        listRT.anchoredPosition = new Vector2(0f, -76f); // 헤더(정렬+레벨업단위 두 행) 바로 아래 — 두 버튼을 가리지 않음
+        listRT.sizeDelta = new Vector2(0f, rowHeight * optionCount + 8f);
+
+        Image listBg = listRoot.AddComponent<Image>();
+        listBg.color = new Color(0.12f, 0.13f, 0.18f, 0.98f);
+
+        VerticalLayoutGroup listLayout = listRoot.AddComponent<VerticalLayoutGroup>();
+        listLayout.childForceExpandWidth = true;
+        listLayout.childForceExpandHeight = false;
+        listLayout.childControlWidth = true;
+        listLayout.childControlHeight = true;
+        listLayout.spacing = 2f;
+        listLayout.padding = new RectOffset(4, 4, 4, 4);
+
+        Button[] optionButtons = new Button[optionCount];
+        for (int i = 0; i < optionCount; i++)
+        {
+            GameObject rowGO = new GameObject($"Option_{i}_{SortModeLabels[i]}");
+            rowGO.transform.SetParent(listRoot.transform, false);
+            LayoutElement rowLE = rowGO.AddComponent<LayoutElement>();
+            rowLE.preferredHeight = rowHeight;
+
+            Image rowImg = rowGO.AddComponent<Image>();
+            rowImg.color = new Color(1f, 1f, 1f, 0.06f);
+
+            Button rowButton = rowGO.AddComponent<Button>();
+            rowButton.targetGraphic = rowImg;
+
+            GameObject rowLabelGO = new GameObject("Label");
+            rowLabelGO.transform.SetParent(rowGO.transform, false);
+            SetupText(rowLabelGO, SortModeLabels[i], font, 15f, TextAlignmentOptions.Center,
+                      Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+            optionButtons[i] = rowButton;
+        }
+
+        listRoot.SetActive(false);
+
+        FlowerSortSelector selector = buttonGO.AddComponent<FlowerSortSelector>();
+        selector.toggleButton = toggleButton;
+        selector.label = labelGO.GetComponent<TMP_Text>();
+        selector.optionListRoot = listRoot;
+        selector.optionButtons = optionButtons;
 
         return selector;
     }
@@ -1854,6 +1980,197 @@ public static class PCLayoutBuilder
         Object.DestroyImmediate(temp);
 
         return savedPrefab != null ? savedPrefab.GetComponent<MemorialEntryItem>() : null;
+    }
+
+    // ── SettingsPanel 생성 (설정 화면 — 도감/메모리얼과 동일한 전체 오버레이 방식) ──
+    //
+    // [확장 방법] 지금은 "데이터 초기화" 한 줄뿐이다. BGM/효과음 볼륨, FPS 제한, 튜토리얼 다시보기
+    // 등을 나중에 추가할 때는: (1) 버튼형 항목이면 CreateSettingsButtonRow를 한 번 더 호출해서
+    // bodyContent 밑에 추가하고, (2) 슬라이더/토글처럼 다른 위젯이 필요하면 이 함수 옆에 비슷한
+    // "CreateSettingsXxxRow" 헬퍼를 하나 더 만들어 같은 방식으로 bodyContent에 추가하면 된다 —
+    // SettingsPanel.cs나 이 메서드의 나머지 구조(헤더/스크롤/확인 오버레이)는 손댈 필요가 없다.
+    static SettingsPanel BuildSettingsPanel(Transform canvasTransform)
+    {
+        Transform existing = canvasTransform.Find("SettingsPanel");
+        if (existing != null) Object.DestroyImmediate(existing.gameObject);
+
+        TMP_FontAsset font = LoadNotoFont();
+
+        GameObject panelRoot = new GameObject("SettingsPanel");
+        panelRoot.transform.SetParent(canvasTransform, false);
+        RectTransform rootRT = panelRoot.AddComponent<RectTransform>();
+        rootRT.anchorMin = Vector2.zero;
+        rootRT.anchorMax = Vector2.one;
+        rootRT.offsetMin = Vector2.zero;
+        rootRT.offsetMax = Vector2.zero;
+
+        Image dim = panelRoot.AddComponent<Image>();
+        dim.color = new Color(0f, 0f, 0f, 0.92f);
+
+        // ── Header (도감/메모리얼과 동일한 구조) ──
+        GameObject header = new GameObject("Header");
+        header.transform.SetParent(panelRoot.transform, false);
+        RectTransform hrt = header.AddComponent<RectTransform>();
+        hrt.anchorMin = new Vector2(0f, 1f);
+        hrt.anchorMax = new Vector2(1f, 1f);
+        hrt.pivot = new Vector2(0.5f, 1f);
+        hrt.sizeDelta = new Vector2(0f, DEX_HEADER_HEIGHT);
+
+        Image hImg = header.AddComponent<Image>();
+        hImg.color = new Color(0.15f, 0.16f, 0.22f, 1f);
+
+        GameObject title = new GameObject("Title");
+        title.transform.SetParent(header.transform, false);
+        SetupText(title, "설정", font, 28f, TextAlignmentOptions.Left,
+                  Vector2.zero, Vector2.one, new Vector2(24f, 0f), new Vector2(-80f, 0f));
+
+        GameObject closeGO = new GameObject("CloseButton");
+        closeGO.transform.SetParent(header.transform, false);
+        RectTransform closeRT = closeGO.AddComponent<RectTransform>();
+        closeRT.anchorMin = new Vector2(1f, 0f);
+        closeRT.anchorMax = new Vector2(1f, 1f);
+        closeRT.pivot = new Vector2(1f, 0.5f);
+        closeRT.sizeDelta = new Vector2(60f, 0f);
+        closeRT.anchoredPosition = new Vector2(-10f, 0f);
+        Image closeBg = closeGO.AddComponent<Image>();
+        closeBg.color = new Color(1f, 0.35f, 0.62f, 1f);
+        Button closeButton = closeGO.AddComponent<Button>();
+        closeButton.targetGraphic = closeBg;
+        GameObject closeLabelGO = new GameObject("Label");
+        closeLabelGO.transform.SetParent(closeGO.transform, false);
+        SetupText(closeLabelGO, "X", font, 22f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        // ── Body: 세로 스크롤 설정 목록 — 확장 전용, 앞으로 여기에 항목만 추가하면 된다 ──
+        GameObject bodyScroll = new GameObject("Scroll View");
+        bodyScroll.transform.SetParent(panelRoot.transform, false);
+        RectTransform bodyRT = bodyScroll.AddComponent<RectTransform>();
+        bodyRT.anchorMin = Vector2.zero;
+        bodyRT.anchorMax = Vector2.one;
+        bodyRT.offsetMin = Vector2.zero;
+        bodyRT.offsetMax = new Vector2(0f, -DEX_HEADER_HEIGHT);
+        RectTransform bodyContent = SetupVerticalScrollContent(bodyScroll, new RectOffset(20, 20, 20, 20));
+
+        // ── 데이터 초기화 항목 (지금 확정된 유일한 설정) ──
+        (Button resetButton, _) = CreateSettingsButtonRow(bodyContent.transform, font,
+            "데이터 초기화", "저장된 진행 상황을 전부 지우고 처음부터 다시 시작합니다.\n되돌릴 수 없습니다.",
+            new Color(0.55f, 0.2f, 0.2f, 1f));
+
+        // ── 확인 오버레이 (패널 직계 자식, 기본 비활성 — SetAsLastSibling으로 항상 맨 위에 그려지게 함) ──
+        GameObject confirmRoot = CreateStretchChild(panelRoot.transform, "ResetConfirmOverlay");
+        Image confirmDim = confirmRoot.AddComponent<Image>();
+        confirmDim.color = new Color(0f, 0f, 0f, 0.85f);
+
+        GameObject confirmBox = new GameObject("Box");
+        confirmBox.transform.SetParent(confirmRoot.transform, false);
+        RectTransform confirmBoxRT = confirmBox.AddComponent<RectTransform>();
+        confirmBoxRT.anchorMin = new Vector2(0.5f, 0.5f);
+        confirmBoxRT.anchorMax = new Vector2(0.5f, 0.5f);
+        confirmBoxRT.pivot = new Vector2(0.5f, 0.5f);
+        confirmBoxRT.sizeDelta = new Vector2(440f, 220f);
+        Image confirmBoxBg = confirmBox.AddComponent<Image>();
+        confirmBoxBg.color = new Color(0.15f, 0.13f, 0.15f, 1f);
+
+        GameObject confirmTextGO = new GameObject("Text");
+        confirmTextGO.transform.SetParent(confirmBox.transform, false);
+        SetupText(confirmTextGO, "정말 초기화하시겠습니까?\n저장된 진행 상황이 전부 사라지며 되돌릴 수 없습니다.",
+                  font, 18f, TextAlignmentOptions.Center,
+                  new Vector2(0f, 0.4f), new Vector2(1f, 1f), new Vector2(20f, 0f), new Vector2(-20f, -20f));
+
+        GameObject confirmButtonRow = new GameObject("ButtonRow");
+        confirmButtonRow.transform.SetParent(confirmBox.transform, false);
+        RectTransform confirmRowRT = confirmButtonRow.AddComponent<RectTransform>();
+        confirmRowRT.anchorMin = new Vector2(0f, 0f);
+        confirmRowRT.anchorMax = new Vector2(1f, 0.4f);
+        confirmRowRT.offsetMin = new Vector2(20f, 20f);
+        confirmRowRT.offsetMax = new Vector2(-20f, 0f);
+        HorizontalLayoutGroup confirmRowLayout = confirmButtonRow.AddComponent<HorizontalLayoutGroup>();
+        confirmRowLayout.childForceExpandWidth = true;
+        confirmRowLayout.childForceExpandHeight = true;
+        confirmRowLayout.childControlWidth = true;
+        confirmRowLayout.childControlHeight = true;
+        confirmRowLayout.spacing = 12f;
+
+        GameObject noGO = new GameObject("NoButton");
+        noGO.transform.SetParent(confirmButtonRow.transform, false);
+        Image noBg = noGO.AddComponent<Image>();
+        noBg.color = new Color(0.3f, 0.3f, 0.35f, 1f);
+        Button noButton = noGO.AddComponent<Button>();
+        noButton.targetGraphic = noBg;
+        GameObject noLabelGO = new GameObject("Label");
+        noLabelGO.transform.SetParent(noGO.transform, false);
+        SetupText(noLabelGO, "취소", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        GameObject yesGO = new GameObject("YesButton");
+        yesGO.transform.SetParent(confirmButtonRow.transform, false);
+        Image yesBg = yesGO.AddComponent<Image>();
+        yesBg.color = new Color(0.7f, 0.25f, 0.25f, 1f);
+        Button yesButton = yesGO.AddComponent<Button>();
+        yesButton.targetGraphic = yesBg;
+        GameObject yesLabelGO = new GameObject("Label");
+        yesLabelGO.transform.SetParent(yesGO.transform, false);
+        SetupText(yesLabelGO, "초기화", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        confirmRoot.SetActive(false);
+        confirmRoot.transform.SetAsLastSibling();
+
+        SettingsPanel panel = panelRoot.AddComponent<SettingsPanel>();
+        panel.root = panelRoot;
+        panel.closeButton = closeButton;
+        panel.resetDataButton = resetButton;
+        panel.resetConfirmRoot = confirmRoot;
+        panel.resetConfirmYesButton = yesButton;
+        panel.resetConfirmNoButton = noButton;
+
+        return panel;
+    }
+
+    /// <summary>
+    /// 설정 항목 한 줄(제목+설명 + 액션 버튼)을 만들어 parent(세로 스크롤 content)에 추가한다.
+    /// 앞으로 BGM/효과음 볼륨(슬라이더), FPS 제한처럼 버튼이 아닌 위젯이 필요해지면 이 함수 옆에
+    /// 비슷한 헬퍼를 하나 더 만들면 된다 — SettingsPanel.cs나 씬 구조를 바꿀 필요가 없다.
+    /// </summary>
+    static (Button button, TMP_Text titleText) CreateSettingsButtonRow(
+        Transform parent, TMP_FontAsset font, string title, string description, Color buttonColor)
+    {
+        GameObject row = new GameObject($"Row_{title}");
+        row.transform.SetParent(parent, false);
+        LayoutElement rowLE = row.AddComponent<LayoutElement>();
+        rowLE.preferredHeight = 96f;
+        Image rowBg = row.AddComponent<Image>();
+        rowBg.color = new Color(1f, 1f, 1f, 0.04f);
+
+        GameObject titleGO = new GameObject("Title");
+        titleGO.transform.SetParent(row.transform, false);
+        SetupText(titleGO, title, font, 20f, TextAlignmentOptions.Left,
+                  new Vector2(0f, 0.5f), new Vector2(0.7f, 1f), new Vector2(16f, 4f), new Vector2(-8f, -8f));
+        titleGO.GetComponent<TMP_Text>().fontStyle = FontStyles.Bold;
+
+        GameObject descGO = new GameObject("Description");
+        descGO.transform.SetParent(row.transform, false);
+        SetupText(descGO, description, font, 14f, TextAlignmentOptions.Left,
+                  new Vector2(0f, 0f), new Vector2(0.7f, 0.5f), new Vector2(16f, 8f), new Vector2(-8f, 0f));
+        descGO.GetComponent<TMP_Text>().color = new Color(0.8f, 0.75f, 0.75f, 1f);
+
+        GameObject buttonGO = new GameObject("Button");
+        buttonGO.transform.SetParent(row.transform, false);
+        RectTransform buttonRT = buttonGO.AddComponent<RectTransform>();
+        buttonRT.anchorMin = new Vector2(0.72f, 0.25f);
+        buttonRT.anchorMax = new Vector2(0.98f, 0.75f);
+        buttonRT.offsetMin = Vector2.zero;
+        buttonRT.offsetMax = Vector2.zero;
+        Image buttonBg = buttonGO.AddComponent<Image>();
+        buttonBg.color = buttonColor;
+        Button button = buttonGO.AddComponent<Button>();
+        button.targetGraphic = buttonBg;
+        GameObject buttonLabelGO = new GameObject("Label");
+        buttonLabelGO.transform.SetParent(buttonGO.transform, false);
+        SetupText(buttonLabelGO, title, font, 16f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        return (button, titleGO.GetComponent<TMP_Text>());
     }
 
     /// <summary>

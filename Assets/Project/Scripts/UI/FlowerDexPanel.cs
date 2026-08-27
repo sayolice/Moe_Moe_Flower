@@ -320,9 +320,9 @@ public class FlowerDexPanel : MonoBehaviour
         UpdateGrowthGallery(data, instance, true);
 
         string bloomStatus = instance.isBloomed ? "개화 완료" : $"성장 중 ({(instance.GetGrowthPercent(data.requiredAffection) * 100f):0}%)";
-        float gps = instance.isBloomed
+        BigNumber gps = instance.isBloomed
             ? FlowerManager.Instance.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel)
-            : data.baseGoldPerSecond;
+            : BigNumber.FromDouble(data.baseGoldPerSecond);
 
         // 유대 레벨: "어느 아이와 시간을 덜 보냈는지"를 도감에서 한눈에 보여주는 게 이 시스템의 핵심
         // 목적이므로 생략하지 않는다. 미개화 꽃은 애초에 유대를 쌓을 수 없으므로(터치 대상이
@@ -334,8 +334,8 @@ public class FlowerDexPanel : MonoBehaviour
         if (detailInfoText != null)
         {
             detailInfoText.text =
-                $"필요 애정 : {data.requiredAffection}\n" +
-                $"초당 골드 : {NumberFormatUtil.Format(gps)} G/s\n" +
+                $"필요 애정 : {NumberFormatUtil.Format(data.requiredAffection)}\n" +
+                $"초당 골드 : {NumberFormatUtil.FormatPrecise(gps)} G/s\n" +
                 $"레벨 : {instance.currentLevel}\n" +
                 bondLine +
                 $"개화 여부 : {bloomStatus}";
@@ -364,8 +364,8 @@ public class FlowerDexPanel : MonoBehaviour
         if (detailInfoText != null)
         {
             detailInfoText.text =
-                $"필요 애정 : {data.requiredAffection}\n" +
-                $"초당 골드 : {NumberFormatUtil.Format(data.baseGoldPerSecond)} G/s (Lv.1)\n" +
+                $"필요 애정 : {NumberFormatUtil.Format(data.requiredAffection)}\n" +
+                $"초당 골드 : {NumberFormatUtil.FormatPrecise(data.baseGoldPerSecond)} G/s (Lv.1)\n" +
                 $"레벨 : -\n" +
                 $"개화 여부 : 미보유";
         }
