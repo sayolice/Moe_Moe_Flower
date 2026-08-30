@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -2052,10 +2053,15 @@ public static class PCLayoutBuilder
     /// </summary>
     static RectTransform SetupVerticalScrollContent(GameObject scrollRoot, RectOffset padding)
     {
-        Image scrollImg = scrollRoot.AddComponent<Image>();
-        scrollImg.color = new Color(0f, 0f, 0f, 0f);
+        Image scrollImg = scrollRoot.GetComponent<Image>();
+        if (scrollImg == null)
+        {
+            scrollImg = scrollRoot.AddComponent<Image>();
+            scrollImg.color = new Color(0f, 0f, 0f, 0f);
+        }
 
-        ScrollRect sr = scrollRoot.AddComponent<ScrollRect>();
+        ScrollRect sr = scrollRoot.GetComponent<ScrollRect>();
+        if (sr == null) sr = scrollRoot.AddComponent<ScrollRect>();
         sr.horizontal = false;
         sr.vertical = true;
         sr.scrollSensitivity = 35f;
@@ -2434,8 +2440,32 @@ public static class PCLayoutBuilder
     /// </summary>
     static void BuildMemorialPlayerPanel(Transform canvasTransform)
     {
+        MemorialSpriteDatabase savedDatabase = null;
+        List<MemorialSpriteEntry> savedCharSprites = null;
+        List<MemorialSpriteEntry> savedBgSprites = null;
+        List<MemorialSpriteEntry> savedCgSprites = null;
+        float savedFadeDuration = 0.3f;
+        float savedSkipDelay = 0.05f;
+        Color savedFocusColor = Color.white;
+        Color savedDimColor = new Color(0.55f, 0.55f, 0.55f, 1f);
+
         Transform existing = canvasTransform.Find("MemorialPlayerPanel");
-        if (existing != null) Object.DestroyImmediate(existing.gameObject);
+        if (existing != null)
+        {
+            MemorialPlayerPanel existingPlayer = existing.GetComponent<MemorialPlayerPanel>();
+            if (existingPlayer != null)
+            {
+                savedDatabase = existingPlayer.spriteDatabase;
+                if (existingPlayer.characterSprites != null) savedCharSprites = new List<MemorialSpriteEntry>(existingPlayer.characterSprites);
+                if (existingPlayer.backgroundSprites != null) savedBgSprites = new List<MemorialSpriteEntry>(existingPlayer.backgroundSprites);
+                if (existingPlayer.cgSprites != null) savedCgSprites = new List<MemorialSpriteEntry>(existingPlayer.cgSprites);
+                savedFadeDuration = existingPlayer.fadeDuration;
+                savedSkipDelay = existingPlayer.skipDelay;
+                savedFocusColor = existingPlayer.focusColor;
+                savedDimColor = existingPlayer.dimColor;
+            }
+            Object.DestroyImmediate(existing.gameObject);
+        }
 
         TMP_FontAsset font = LoadNotoFont();
 
@@ -2446,6 +2476,11 @@ public static class PCLayoutBuilder
         rootRT.anchorMax = Vector2.one;
         rootRT.offsetMin = Vector2.zero;
         rootRT.offsetMax = Vector2.zero;
+
+        CanvasGroup cg = panelRoot.AddComponent<CanvasGroup>();
+        cg.alpha = 0f;
+        cg.interactable = false;
+        cg.blocksRaycasts = false;
 
         Image rootBg = panelRoot.AddComponent<Image>();
         rootBg.color = Color.black; // 배경 스프라이트가 없는 줄에서도 새카맣게 깔린다
@@ -2590,6 +2625,19 @@ public static class PCLayoutBuilder
         player.skipButton = skipButton;
         player.skipButtonText = skipButtonText;
         player.closeButton = closeButton;
+
+        // 기존 인스펙터에 등록되어 있던 키/스프라이트 목록 및 설정 보존
+        if (savedDatabase == null)
+            savedDatabase = AssetDatabase.LoadAssetAtPath<MemorialSpriteDatabase>("Assets/Project/ScriptableObjects/MemorialSpriteDatabase.asset");
+
+        player.spriteDatabase = savedDatabase;
+        if (savedCharSprites != null) player.characterSprites = savedCharSprites;
+        if (savedBgSprites != null) player.backgroundSprites = savedBgSprites;
+        if (savedCgSprites != null) player.cgSprites = savedCgSprites;
+        player.fadeDuration = savedFadeDuration;
+        player.skipDelay = savedSkipDelay;
+        player.focusColor = savedFocusColor;
+        player.dimColor = savedDimColor;
     }
 
     // ── SettingsPanel 생성 (설정 화면 — 도감/메모리얼과 동일한 전체 오버레이 방식) ──
@@ -2845,6 +2893,11 @@ public static class PCLayoutBuilder
         rootRT.anchorMax = Vector2.one;
         rootRT.offsetMin = Vector2.zero;
         rootRT.offsetMax = Vector2.zero;
+
+        CanvasGroup cg = panelRoot.AddComponent<CanvasGroup>();
+        cg.alpha = 0f;
+        cg.interactable = false;
+        cg.blocksRaycasts = false;
 
         Image dim = panelRoot.AddComponent<Image>();
         dim.color = new Color(0f, 0f, 0f, 0.94f);

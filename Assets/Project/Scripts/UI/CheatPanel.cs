@@ -82,6 +82,7 @@ public class CheatPanel : MonoBehaviour
         if (root == null) root = gameObject;
         canvasGroup = root.GetComponent<CanvasGroup>();
         if (canvasGroup == null) canvasGroup = root.AddComponent<CanvasGroup>();
+        SetVisible(false);
     }
 
     private void Start()

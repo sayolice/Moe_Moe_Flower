@@ -29,7 +29,10 @@ public class MemorialPlayerPanel : MonoBehaviour
     [Header("루트")]
     public GameObject root;
 
-    [Header("스프라이트 데이터베이스 (키로 조회 — 참고 코드의 globalCharacterSprites 패턴)")]
+    [Header("스프라이트 데이터베이스 (ScriptableObject — 프로젝트 에셋으로 영구 보존 권장)")]
+    public MemorialSpriteDatabase spriteDatabase;
+
+    [Header("스프라이트 인스펙터 목록 (임시 등록 또는 로컬 오버라이드용)")]
     public List<MemorialSpriteEntry> characterSprites = new List<MemorialSpriteEntry>();
     public List<MemorialSpriteEntry> backgroundSprites = new List<MemorialSpriteEntry>();
     public List<MemorialSpriteEntry> cgSprites = new List<MemorialSpriteEntry>();
@@ -92,6 +95,18 @@ public class MemorialPlayerPanel : MonoBehaviour
         if (root == null) root = gameObject;
         canvasGroup = root.GetComponent<CanvasGroup>();
         if (canvasGroup == null) canvasGroup = root.AddComponent<CanvasGroup>();
+        SetVisible(false);
+
+        characterDict.Clear();
+        backgroundDict.Clear();
+        cgDict.Clear();
+
+        if (spriteDatabase != null)
+        {
+            BuildDict(spriteDatabase.characterSprites, characterDict);
+            BuildDict(spriteDatabase.backgroundSprites, backgroundDict);
+            BuildDict(spriteDatabase.cgSprites, cgDict);
+        }
 
         BuildDict(characterSprites, characterDict);
         BuildDict(backgroundSprites, backgroundDict);
