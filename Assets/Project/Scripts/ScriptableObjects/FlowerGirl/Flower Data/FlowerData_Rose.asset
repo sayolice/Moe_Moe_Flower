@@ -33,3 +33,25 @@ MonoBehaviour:
     scope: 0
     value: -0.03
     chance: 1
+  memorialEntries:
+  - unlockBondLevel: 1
+    title: "\uD14C\uC2A4\uD2B8"
+    body: 
+    lines:
+    - "[N]\uD587\uC0B4\uC774 \uC88B\uC740 \uC624\uD6C4, \uC815\uC6D0\uC5D0 \uB4E4\uC5B4\uC130\uB2E4."
+    - "[ENTER_C:Roze][C:\uC7A5\uBBF8]\uC5B4\uC11C \uC640\uC694, \uAE30\uB2E4\uB9AC\uACE0
+      \uC788\uC5C8\uC5B4\uC694."
+    - "[C:\uC7A5\uBBF8]\uC624\uB298\uC740 \uC720\uB09C\uD788 \uB0A0\uC528\uAC00 \uC88B\uB124\uC694."
+    - "[N]\uC7A5\uBBF8\uAC00 \uC0B4\uC9DD \uBBF8\uC18C \uC9C0\uC5C8\uB2E4. "
+    - "[C:\uC7A5\uBBF8]...\uC55E\uC73C\uB85C\uB3C4 \uC790\uC8FC \uB180\uB7EC \uC640
+      \uC904\uB798\uC694?"
+    - "[N]\uC7A5\uBBF8\uB294 \uADF8\uB807\uAC8C \uC778\uC0AC\uB97C \uB0A8\uAE30\uACE0
+      \uC548\uC73C\uB85C \uB4E4\uC5B4\uAC14\uB2E4."
+  gardenShape:
+  - {x: 0, y: 0}
+  - {x: 1, y: 0}
+  - {x: 2, y: 0}
+  adjacencyEffect:
+    type: 3
+    primaryValue: 1.3
+    secondaryValue: 0

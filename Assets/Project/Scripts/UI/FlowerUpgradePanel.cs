@@ -123,8 +123,8 @@ public class FlowerUpgradePanel : MonoBehaviour
         BigNumber cost = fm.GetEffectiveLevelUpCost(data, instance.currentLevel);
         if (cost <= BigNumber.Zero) return BigNumber.Zero;
 
-        BigNumber gpsNow = fm.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel);
-        BigNumber gpsAfter = fm.GetEffectiveGoldPerSecond(data, instance.currentLevel + 1, instance.bondLevel);
+        BigNumber gpsNow = fm.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel, id);
+        BigNumber gpsAfter = fm.GetEffectiveGoldPerSecond(data, instance.currentLevel + 1, instance.bondLevel, id);
 
         return (gpsAfter - gpsNow) / cost;
     }
@@ -140,6 +140,6 @@ public class FlowerUpgradePanel : MonoBehaviour
         FlowerData data = fm.GetFlowerData(id);
         if (instance == null || data == null || !instance.isBloomed) return BigNumber.Zero;
 
-        return fm.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel);
+        return fm.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel, id);
     }
 }

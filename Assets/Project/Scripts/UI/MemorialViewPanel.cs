@@ -113,17 +113,37 @@ public class MemorialViewPanel : MonoBehaviour
                 !instance.readMemorialBondLevels.Contains(entry.unlockBondLevel));
 
             MemorialEntryItem item = Instantiate(itemPrefab, listContent);
-            item.Setup(this, entry.unlockBondLevel, entry.title, entry.body, unlocked, unread);
+            item.Setup(this, entry.unlockBondLevel, entry.title, entry.body, entry.lines, unlocked, unread);
             spawnedItems.Add(item);
         }
     }
 
     /// <summary>
     /// MemorialEntryItem이 클릭됐을 때 호출(해금된 항목만 클릭 가능하므로 여기 도달하면 항상 해금 상태).
-    /// 본문을 보여주는 동시에 FlowerManager에 읽음 처리를 위임한다 — 뱃지가 이 즉시 꺼진다.
+    /// lines(태그 대본)가 있으면 MemorialPlayerPanel로 재생하고, 없으면(작성 전이거나 예전 방식) 기존
+    /// 줄글 body 화면을 그대로 보여준다 — lines 필드를 새로 추가해도 body만 채워둔 메모리얼이 깨지지
+    /// 않아야 하기 때문이다.
     /// </summary>
-    public void OpenEntryDetail(int bondLevel, string title, string body)
+    public void OpenEntryDetail(int bondLevel, string title, string body, List<string> lines)
     {
+        if (lines != null && lines.Count > 0 && MemorialPlayerPanel.Instance != null)
+        {
+            if (listRoot != null) listRoot.SetActive(false);
+
+            MemorialPlayerPanel.Instance.Play(lines, completed =>
+            {
+                // 요청 명세: "완료되면 목록으로 복귀하며 읽음 처리됩니다" — 중간에 닫기로 나간 경우엔
+                // 읽음 처리하지 않는다(끝까지 보지 않았으므로).
+                if (completed && FlowerManager.Instance != null && !string.IsNullOrEmpty(currentFlowerId))
+                    FlowerManager.Instance.MarkMemorialRead(currentFlowerId, bondLevel);
+
+                ShowList();
+                RebuildList(); // NEW 배지·잠금 상태 갱신
+            });
+            return;
+        }
+
+        // ── 기존 방식: 줄글 body 화면 ──
         if (listRoot != null) listRoot.SetActive(false);
         if (detailRoot != null) detailRoot.SetActive(true);
 

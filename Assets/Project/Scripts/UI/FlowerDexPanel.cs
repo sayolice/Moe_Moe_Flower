@@ -321,7 +321,7 @@ public class FlowerDexPanel : MonoBehaviour
 
         string bloomStatus = instance.isBloomed ? "개화 완료" : $"성장 중 ({(instance.GetGrowthPercent(data.requiredAffection) * 100f):0}%)";
         BigNumber gps = instance.isBloomed
-            ? FlowerManager.Instance.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel)
+            ? FlowerManager.Instance.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel, instance.flowerId)
             : BigNumber.FromDouble(data.baseGoldPerSecond);
 
         // 유대 레벨: "어느 아이와 시간을 덜 보냈는지"를 도감에서 한눈에 보여주는 게 이 시스템의 핵심
@@ -342,7 +342,7 @@ public class FlowerDexPanel : MonoBehaviour
         }
 
         if (detailPassivesText != null)
-            detailPassivesText.text = BuildPassiveText(data);
+            detailPassivesText.text = CombineSections(BuildPassiveText(data), BuildAdjacencyEffectText(data, instance));
 
         SetZoomControlsInteractable(true);
 
@@ -370,8 +370,10 @@ public class FlowerDexPanel : MonoBehaviour
                 $"개화 여부 : 미보유";
         }
 
+        // 미보유 꽃도 인접 효과는 미리 보여준다 — "정원에 배치해봐야만 알 수 있으면 계획을 세울 수
+        // 없다"(작업 지시 5번)는 요구가 배치 전 꽃(미보유 포함)에도 적용되므로 여기서 비우지 않는다.
         if (detailPassivesText != null)
-            detailPassivesText.text = "";
+            detailPassivesText.text = BuildAdjacencyEffectText(data, null);
 
         SetGrowthGalleryInteractable(false);
         HideGrowthGallery(); // 실루엣조차 보여주지 않고 완전히 숨긴다(대표 이미지와 동일한 수준으로 잠금)
@@ -640,6 +642,49 @@ public class FlowerDexPanel : MonoBehaviour
             if (!isFirst) sb.Append('\n');
             isFirst = false;
             sb.Append(string.IsNullOrEmpty(p.description) ? name : $"{name} : {p.description}");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 작업 5(정원 인접 효과 시각화 UI 지시서) — 도감에서 배치 전에도 인접 효과를 확인할 수 있어야
+    /// 계획을 세울 수 있다는 요구. 설명 문구는 AdjacencyEffectData.GetDescription() 하나만 쓴다
+    /// (정원 정보 패널과 동일 소스 — 두 화면 설명이 어긋나지 않게).
+    /// instance가 null이면 미보유, isBloomed가 false면 미개화로 상태를 표시한다(둘 다 유대 자체가
+    /// 없는 상태이므로 "Lv.5 필요" 문구 대신 그 상태를 그대로 보여주는 게 더 정확하다).
+    /// </summary>
+    private string BuildAdjacencyEffectText(FlowerData data, FlowerInstance instance)
+    {
+        AdjacencyEffectData effect = data.adjacencyEffect;
+        if (effect == null || effect.type == AdjacencyEffectType.None) return "";
+
+        int maxBondLevel = FlowerManager.Instance != null ? FlowerManager.Instance.ActiveBondData.maxBondLevel : 5;
+
+        // 유대 Lv.5에서만 켜지는 게 아니라 유대 레벨에 비례해 단계적으로 강해지므로, "개방됨/Lv.5
+        // 필요" 같은 이분법 대신 지금 위력이 몇 %인지를 보여준다.
+        string status;
+        if (instance == null) status = "미보유";
+        else if (!instance.isBloomed) status = "미개화";
+        else
+        {
+            float power = FlowerManager.Instance != null ? FlowerManager.Instance.GetAdjacencyPower(instance.bondLevel) : 0f;
+            status = power >= 0.999f
+                ? $"위력 100% (유대 Lv.{instance.bondLevel}, 최대)"
+                : $"위력 {power * 100f:0.#}% (유대 Lv.{instance.bondLevel})";
+        }
+
+        return $"인접 효과 (유대 레벨에 비례해 강해짐, 최대 Lv.{maxBondLevel})\n  {effect.GetDescription()}\n  현재 상태: {status}";
+    }
+
+    /// <summary> 비어 있는 섹션은 건너뛰고, 있는 섹션끼리는 빈 줄 하나로 이어붙인다. </summary>
+    private static string CombineSections(params string[] sections)
+    {
+        var sb = new StringBuilder();
+        foreach (string s in sections)
+        {
+            if (string.IsNullOrEmpty(s)) continue;
+            if (sb.Length > 0) sb.Append("\n\n");
+            sb.Append(s);
         }
         return sb.ToString();
     }

@@ -126,6 +126,9 @@ public class SaveManager : MonoBehaviour
         if (PlayerStatManager.Instance != null)
             data.playerStats = PlayerStatManager.Instance.GetAllLevelsForSave();
 
+        if (GardenManager.Instance != null)
+            data.garden = GardenManager.Instance.CaptureSaveData();
+
         try
         {
             string json = JsonUtility.ToJson(data, true);
@@ -168,6 +171,11 @@ public class SaveManager : MonoBehaviour
             if (PlayerStatManager.Instance != null)
                 PlayerStatManager.Instance.LoadLevels(data.playerStats);
 
+            // 정원 상태(배치/시듦 기준 시각)는 오프라인 정산(ApplyOfflineProgress)이 정원 유대·시듦
+            // 구간 분할을 계산할 때 이미 다 로드돼 있어야 하므로, 반드시 그 호출보다 먼저 온다.
+            if (GardenManager.Instance != null)
+                GardenManager.Instance.LoadFromSaveData(data.garden);
+
             double elapsedSeconds = ComputeElapsedSecondsSinceLastSave(data.lastSaveTimeTicksUtc);
 
             OfflineSettlementResult result = FlowerManager.Instance != null
@@ -209,6 +217,9 @@ public class SaveManager : MonoBehaviour
 
             if (FlowerManager.Instance != null)
                 FlowerManager.Instance.ResetToFreshStart();
+
+            if (GardenManager.Instance != null)
+                GardenManager.Instance.ResetToFreshStart();
 
             if (PlayerStatManager.Instance != null)
                 PlayerStatManager.Instance.ResetToStartingLevels();

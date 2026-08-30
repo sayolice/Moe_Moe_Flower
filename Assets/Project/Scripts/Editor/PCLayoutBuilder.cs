@@ -41,9 +41,26 @@ public static class PCLayoutBuilder
         AssetDatabase.SaveAssets();
     }
 
+    /// <summary>
+    /// GardenManager는 FlowerManager/GameManager처럼 씬에 전용 GameObject로 미리 존재해야 하는데,
+    /// 이번 세션에 정원 시스템을 새로 추가하면서 정작 씬에 그 GameObject를 만드는 걸 빠뜨렸다 —
+    /// 그래서 GardenManager.Instance가 항상 null이라 배치 UI(격자·목록)가 아무것도 못 그리고,
+    /// 확장 버튼을 누르면 NullReferenceException이 나던 버그였다. FlowerManager와 똑같이 스크립트
+    /// 하나만 붙은 전용 GameObject를 만들어 둔다(이미 있으면 중복 생성하지 않음).
+    /// </summary>
+    static void EnsureGardenManager()
+    {
+        if (Object.FindFirstObjectByType<GardenManager>() != null) return;
+
+        GameObject gardenManagerGO = new GameObject("GardenManager");
+        gardenManagerGO.AddComponent<GardenManager>();
+    }
+
     [MenuItem("Tools/🌸 Build PC Layout")]
     public static void BuildLayout()
     {
+        EnsureGardenManager();
+
         // 1. Canvas 찾기 및 Scaler 설정 (1920x1080 기준)
         Canvas gameCanvas = Object.FindFirstObjectByType<Canvas>();
         if (gameCanvas == null)
@@ -155,8 +172,13 @@ public static class PCLayoutBuilder
         // 1. ShopPanel -> LeftSlot 자식
         GameObject shopPanel = CreateShopPanel(leftSlot.transform);
 
+        // 정원 선택 정보 패널(작업 1)을 ShopPanel 위 오버레이로 띄운다 — 원래는 GardenPanel 자식으로
+        // 넣었는데, 격자 하이라이트와 정보 패널이 같은 화면에 동시에 떠서 좁고 불편하다는 신고가
+        // 있었다. 정원을 보는 동안 상점 패널은 어차피 안 쓰이므로 그 자리를 빌려 쓴다.
+        GardenFlowerInfoPanel gardenInfoPanel = CreateGardenFlowerInfoPanel(shopPanel.transform, LoadNotoFont());
+
         // 2. GrowthPanel -> RightSlot 자식 (꽃 성장 / 플레이어 강화 탭 전환, PanelSwitcher 기반)
-        GameObject growthPanel = CreateGrowthPanel(rightSlot.transform);
+        GameObject growthPanel = CreateGrowthPanel(rightSlot.transform, gardenInfoPanel);
 
         // ── PCLayoutController 연결 ──────────────────────────────────────
         PCLayoutController ctrl = pcLayout.AddComponent<PCLayoutController>();
@@ -175,8 +197,14 @@ public static class PCLayoutBuilder
         // ── 유대 메모리얼 뷰 (Canvas 최상위, 도감과 동일한 전체 오버레이 방식) ──
         BuildMemorialViewPanel(canvasGO.transform);
 
+        // ── 메모리얼 재생기(VN) — MemorialViewPanel이 lines가 있는 항목을 열 때 이걸 재생한다 ──
+        BuildMemorialPlayerPanel(canvasGO.transform);
+
         // ── 설정 화면 (Canvas 최상위, 동일한 전체 오버레이 방식) ──
         SettingsPanel settingsPanel = BuildSettingsPanel(canvasGO.transform);
+
+        // ── 치트 패널 (설정 화면 위에 겹쳐서 열림, 비밀번호로 잠김) ──
+        BuildCheatPanel(canvasGO.transform);
 
         // TopBar의 도감/설정 열기 버튼을 각 패널의 openButton 필드에 연결한다.
         // 여기서 onClick.AddListener를 직접 호출하지 않는 이유: 에디터 스크립트는 Play 모드 밖에서
@@ -513,7 +541,7 @@ public static class PCLayoutBuilder
     }
 
     // ── GrowthPanel 생성 (꽃 성장 / 플레이어 강화, PanelSwitcher로 탭 전환) ─────
-    static GameObject CreateGrowthPanel(Transform parent)
+    static GameObject CreateGrowthPanel(Transform parent, GardenFlowerInfoPanel gardenInfoPanel)
     {
         TMP_FontAsset font = LoadNotoFont();
 
@@ -550,6 +578,7 @@ public static class PCLayoutBuilder
 
         Button flowerTabButton  = CreateTabButton(tabBar.transform, "FlowerTabButton", "꽃", font);
         Button playerTabButton  = CreateTabButton(tabBar.transform, "PlayerTabButton", "플레이어", font);
+        Button gardenTabButton  = CreateTabButton(tabBar.transform, "GardenTabButton", "정원", font);
 
         // ── PanelContainer (TabBar 아래 전체 영역) ──
         GameObject panelContainer = new GameObject("PanelContainer");
@@ -562,13 +591,15 @@ public static class PCLayoutBuilder
 
         GameObject flowerUpgradePanelGO = CreateFlowerUpgradePanel(panelContainer.transform);
         GameObject playerUpgradePanelGO = CreatePlayerUpgradePanel(panelContainer.transform);
+        GameObject gardenPanelGO = CreateGardenPanel(panelContainer.transform, gardenInfoPanel);
 
-        // ── PanelSwitcher 연결 (범용 탭 전환기 — Flower/Player를 모름) ──
+        // ── PanelSwitcher 연결 (범용 탭 전환기 — Flower/Player/Garden을 모름) ──
         PanelSwitcher switcher = growthPanel.AddComponent<PanelSwitcher>();
         switcher.tabs = new System.Collections.Generic.List<PanelSwitcher.Tab>
         {
             new PanelSwitcher.Tab { button = flowerTabButton, panel = flowerUpgradePanelGO },
-            new PanelSwitcher.Tab { button = playerTabButton, panel = playerUpgradePanelGO }
+            new PanelSwitcher.Tab { button = playerTabButton, panel = playerUpgradePanelGO },
+            new PanelSwitcher.Tab { button = gardenTabButton, panel = gardenPanelGO }
         };
         switcher.defaultTabIndex = 0;
         // 아래 두 색상은 PanelSwitcher의 공개 필드에 넣어주는 "초기값"일 뿐이며, 이후 Inspector에서 자유롭게 바꿀 수 있다.
@@ -1022,6 +1053,405 @@ public static class PCLayoutBuilder
         return statRow;
     }
 
+    // ── GardenPanel 생성 (정원 탭: 1단계 최소 배치 UI — 탭 전용, 드래그 없음) ──────
+    //
+    // 구조: 상단 요약(총 G/s + 확장 버튼) / 가운데 격자(스크롤 가능) / 하단 배치 대상 목록(가로 스크롤).
+    // 하이라이트·드래그·시듦 연출은 다음 단계에서 추가한다 — 지금은 배치를 바꿨을 때 총 G/s 숫자가
+    // 실제로 움직이는지(=인접 효과 계산 경로가 살아있는지) 확인하는 것이 목적이다.
+    static GameObject CreateGardenPanel(Transform parent, GardenFlowerInfoPanel infoPanel)
+    {
+        TMP_FontAsset font = LoadNotoFont();
+
+        GameObject panel = new GameObject("GardenPanel");
+        panel.transform.SetParent(parent, false);
+        RectTransform rt = panel.AddComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        // ── 상단 요약 (총 G/s + 확장 버튼) ──
+        GameObject summaryRow = new GameObject("SummaryRow");
+        summaryRow.transform.SetParent(panel.transform, false);
+        RectTransform summaryRT = summaryRow.AddComponent<RectTransform>();
+        summaryRT.anchorMin = new Vector2(0f, 1f);
+        summaryRT.anchorMax = new Vector2(1f, 1f);
+        summaryRT.pivot = new Vector2(0.5f, 1f);
+        summaryRT.sizeDelta = new Vector2(0f, 44f);
+
+        GameObject gpsTextGO = new GameObject("TotalGpsText");
+        gpsTextGO.transform.SetParent(summaryRow.transform, false);
+        SetupText(gpsTextGO, "총 0 G/s", font, 16f, TextAlignmentOptions.Left,
+                  Vector2.zero, new Vector2(0.55f, 1f), new Vector2(8f, 0f), Vector2.zero);
+
+        GameObject expandGO = new GameObject("ExpandButton");
+        expandGO.transform.SetParent(summaryRow.transform, false);
+        RectTransform expandRT = expandGO.AddComponent<RectTransform>();
+        expandRT.anchorMin = new Vector2(0.55f, 0.1f);
+        expandRT.anchorMax = new Vector2(1f, 0.9f);
+        expandRT.offsetMin = new Vector2(4f, 0f);
+        expandRT.offsetMax = new Vector2(-8f, 0f);
+        Image expandBg = expandGO.AddComponent<Image>();
+        expandBg.color = new Color(0.3f, 0.3f, 0.35f, 1f);
+        Button expandButton = expandGO.AddComponent<Button>();
+        expandButton.targetGraphic = expandBg;
+        GameObject expandLabelGO = new GameObject("Label");
+        expandLabelGO.transform.SetParent(expandGO.transform, false);
+        SetupText(expandLabelGO, "확장", font, 13f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        // ── 하단 배치 대상 목록 (가로 스크롤) ──
+        GameObject rosterSection = new GameObject("RosterSection");
+        rosterSection.transform.SetParent(panel.transform, false);
+        RectTransform rosterSectionRT = rosterSection.AddComponent<RectTransform>();
+        rosterSectionRT.anchorMin = new Vector2(0f, 0f);
+        rosterSectionRT.anchorMax = new Vector2(1f, 0f);
+        rosterSectionRT.pivot = new Vector2(0.5f, 0f);
+        rosterSectionRT.sizeDelta = new Vector2(0f, 160f); // 모양 미리보기 추가로 항목 키(80→120)에 맞춰 확대
+
+        GameObject armedStatusGO = new GameObject("ArmedStatusText");
+        armedStatusGO.transform.SetParent(rosterSection.transform, false);
+        SetupText(armedStatusGO, "배치할 꽃을 선택하세요.", font, 13f, TextAlignmentOptions.Center,
+                  new Vector2(0f, 0.78f), new Vector2(1f, 1f), new Vector2(6f, 0f), new Vector2(-6f, 0f));
+
+        GameObject rosterScrollGO = new GameObject("RosterScroll");
+        rosterScrollGO.transform.SetParent(rosterSection.transform, false);
+        RectTransform rosterScrollRT = rosterScrollGO.AddComponent<RectTransform>();
+        rosterScrollRT.anchorMin = new Vector2(0f, 0f);
+        rosterScrollRT.anchorMax = new Vector2(1f, 0.78f);
+        rosterScrollRT.offsetMin = Vector2.zero;
+        rosterScrollRT.offsetMax = Vector2.zero;
+
+        Image rosterScrollImg = rosterScrollGO.AddComponent<Image>();
+        rosterScrollImg.color = new Color(0f, 0f, 0f, 0f);
+
+        ScrollRect rosterSR = rosterScrollGO.AddComponent<ScrollRect>();
+        rosterSR.horizontal = true;
+        rosterSR.vertical = false;
+        rosterSR.scrollSensitivity = 35f;
+
+        GameObject rosterViewport = new GameObject("Viewport");
+        rosterViewport.transform.SetParent(rosterScrollGO.transform, false);
+        RectTransform rosterVpRT = rosterViewport.AddComponent<RectTransform>();
+        rosterVpRT.anchorMin = Vector2.zero;
+        rosterVpRT.anchorMax = Vector2.one;
+        rosterVpRT.offsetMin = Vector2.zero;
+        rosterVpRT.offsetMax = Vector2.zero;
+        Image rosterVpImg = rosterViewport.AddComponent<Image>();
+        rosterVpImg.color = new Color(1f, 1f, 1f, 0.01f);
+        Mask rosterMask = rosterViewport.AddComponent<Mask>();
+        rosterMask.showMaskGraphic = false;
+
+        GameObject rosterContentGO = new GameObject("Content");
+        rosterContentGO.transform.SetParent(rosterViewport.transform, false);
+        RectTransform rosterContentRT = rosterContentGO.AddComponent<RectTransform>();
+        rosterContentRT.anchorMin = new Vector2(0f, 0f);
+        rosterContentRT.anchorMax = new Vector2(0f, 1f);
+        rosterContentRT.pivot = new Vector2(0f, 0.5f);
+        rosterContentRT.anchoredPosition = Vector2.zero;
+        rosterContentRT.sizeDelta = Vector2.zero;
+
+        HorizontalLayoutGroup rosterLayout = rosterContentGO.AddComponent<HorizontalLayoutGroup>();
+        rosterLayout.childForceExpandWidth = false;
+        rosterLayout.childForceExpandHeight = true;
+        rosterLayout.childControlWidth = false;
+        rosterLayout.childControlHeight = true;
+        rosterLayout.spacing = 8f;
+        rosterLayout.padding = new RectOffset(8, 8, 4, 4);
+
+        ContentSizeFitter rosterCsf = rosterContentGO.AddComponent<ContentSizeFitter>();
+        rosterCsf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        rosterSR.viewport = rosterVpRT;
+        rosterSR.content = rosterContentRT;
+
+        // ── 격자 (가운데 나머지 전부, 스크롤 가능 — 열 수는 런타임에 GardenPanel이 정원 크기로 맞춘다) ──
+        GameObject gridArea = new GameObject("GridArea");
+        gridArea.transform.SetParent(panel.transform, false);
+        RectTransform gridAreaRT = gridArea.AddComponent<RectTransform>();
+        gridAreaRT.anchorMin = Vector2.zero;
+        gridAreaRT.anchorMax = Vector2.one;
+        gridAreaRT.offsetMin = new Vector2(0f, 160f); // RosterSection 높이(160)와 반드시 일치해야 함
+        gridAreaRT.offsetMax = new Vector2(0f, -44f);
+
+        // 칸 크기를 55→80으로 키웠다(요청: "정원을 더 크게 보여줘 기본을") — 최대 크기(6×5)에서도
+        // 6*80+5*4(간격)+16(패딩)=516px로 사이드바 폭(~656px)에 여유 있게 들어가고, 최소 크기(3×2)
+        // 기준으로 화면이 휑해 보이던 문제가 줄어든다.
+        RectTransform gridContent = BuildDexScrollGrid(gridArea.transform, new Vector2(80f, 80f));
+
+        // 도감(BuildDexScrollGrid 기본값)은 Content를 뷰포트 폭 전체로 늘리고 위쪽에 고정한 뒤 세로만
+        // PreferredSize로 맞춘다 — 항목이 많아 세로로 쭉 나열/스크롤되는 화면엔 맞지만, 정원은 격자가
+        // 뷰포트보다 작을 때가 대부분이라 이 방식이면 왼쪽 위로 쏠려 보인다. 정원은 가로·세로 둘 다
+        // PreferredSize로 격자 크기에 딱 맞게 줄이고, Content 자체를 뷰포트 한가운데(0.5, 0.5)에
+        // 앵커/피벗으로 고정해 "width·height 모두 중앙"이 되게 한다(요청: x축·y축 둘 다).
+        gridContent.anchorMin = new Vector2(0.5f, 0.5f);
+        gridContent.anchorMax = new Vector2(0.5f, 0.5f);
+        gridContent.pivot = new Vector2(0.5f, 0.5f);
+        gridContent.anchoredPosition = Vector2.zero;
+
+        ContentSizeFitter gridContentCsf = gridContent.GetComponent<ContentSizeFitter>();
+        if (gridContentCsf != null) gridContentCsf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        GridLayoutGroup gridLayout = gridContent.GetComponent<GridLayoutGroup>();
+        gridLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+        gridLayout.spacing = new Vector2(4f, 4f);
+        gridLayout.padding = new RectOffset(8, 8, 8, 8);
+        gridLayout.childAlignment = TextAnchor.MiddleCenter; // Content가 격자 크기에 딱 맞으므로 지금은 무해하지만, 확장 등으로 셀 배열이 고르지 않을 때를 대비해 유지
+
+        // 선택 정보 패널(작업 1)은 이제 이 메서드 밖(ShopPanel 위)에서 만들어져 매개변수로 들어온다 —
+        // BuildLayout()의 CreateGardenFlowerInfoPanel(shopPanel.transform, ...) 호출 참고.
+
+        // ── GardenPanel 컴포넌트 연결 ──
+        GardenPanel gardenPanel = panel.AddComponent<GardenPanel>();
+        gardenPanel.root              = panel;
+        gardenPanel.totalGpsText      = gpsTextGO.GetComponent<TMP_Text>();
+        gardenPanel.expandButton      = expandButton;
+        gardenPanel.expandButtonText  = expandLabelGO.GetComponent<TMP_Text>();
+        gardenPanel.gridContent       = gridContent;
+        gardenPanel.gridLayout        = gridLayout;
+        gardenPanel.cellPrefab        = GetOrCreateGardenCellPrefab();
+        gardenPanel.rosterContent     = rosterContentRT;
+        gardenPanel.rosterItemPrefab  = GetOrCreateGardenRosterItemPrefab();
+        gardenPanel.armedStatusText   = armedStatusGO.GetComponent<TMP_Text>();
+        gardenPanel.infoPanel         = infoPanel;
+
+        return panel;
+    }
+
+    /// <summary>
+    /// 정원 선택 정보 패널(작업 1) — OfflineSummaryPopup과 같은 "dim 배경 + 중앙 카드" 오버레이
+    /// 구조다. ShopPanel의 자식으로 둔다 — 정원 탭을 보는 동안은 상점을 안 쓰므로 그 화면을 잠깐
+    /// 빌려 쓰는 것("격자 하이라이트와 정보 패널이 같은 화면에 같이 떠서 좁다"는 신고로 옮김).
+    /// GardenPanel(다른 사이드에 있음)은 infoPanel 필드 참조만 들고 Show/Hide를 호출한다.
+    /// 내용 길이가 꽃마다 달라서(받고 있는 효과 개수 등) 고정 카드 대신 세로 스크롤 텍스트로 만든다.
+    /// </summary>
+    static GardenFlowerInfoPanel CreateGardenFlowerInfoPanel(Transform parent, TMP_FontAsset font)
+    {
+        GameObject popupRoot = new GameObject("GardenFlowerInfoPanel");
+        popupRoot.transform.SetParent(parent, false);
+        RectTransform rootRT = popupRoot.AddComponent<RectTransform>();
+        rootRT.anchorMin = Vector2.zero;
+        rootRT.anchorMax = Vector2.one;
+        rootRT.offsetMin = Vector2.zero;
+        rootRT.offsetMax = Vector2.zero;
+
+        Image dim = popupRoot.AddComponent<Image>();
+        dim.color = new Color(0f, 0f, 0f, 0.75f);
+
+        GameObject card = new GameObject("Card");
+        card.transform.SetParent(popupRoot.transform, false);
+        RectTransform cardRT = card.AddComponent<RectTransform>();
+        cardRT.anchorMin = new Vector2(0.5f, 0.5f);
+        cardRT.anchorMax = new Vector2(0.5f, 0.5f);
+        cardRT.pivot = new Vector2(0.5f, 0.5f);
+        cardRT.anchoredPosition = Vector2.zero;
+        cardRT.sizeDelta = new Vector2(560f, 620f);
+
+        Image cardBg = card.AddComponent<Image>();
+        cardBg.color = new Color(0.14f, 0.1f, 0.14f, 0.97f);
+
+        VerticalLayoutGroup cardLayout = card.AddComponent<VerticalLayoutGroup>();
+        cardLayout.childForceExpandWidth = true;
+        cardLayout.childForceExpandHeight = false;
+        cardLayout.childControlWidth = true;
+        cardLayout.childControlHeight = true;
+        cardLayout.spacing = 12f;
+        cardLayout.padding = new RectOffset(20, 20, 20, 20);
+
+        // 본문 — 길이가 꽃마다 달라 세로 스크롤로 감싼다.
+        GameObject scrollGO = new GameObject("BodyScroll");
+        scrollGO.transform.SetParent(card.transform, false);
+        scrollGO.AddComponent<RectTransform>();
+        LayoutElement scrollLE = scrollGO.AddComponent<LayoutElement>();
+        scrollLE.preferredHeight = 480f;
+        scrollLE.flexibleHeight = 1f;
+        Image scrollBg = scrollGO.AddComponent<Image>();
+        scrollBg.color = new Color(0f, 0f, 0f, 0.001f); // Mask에는 Graphic이 필요 — 사실상 투명
+        ScrollRect scrollRect = scrollGO.AddComponent<ScrollRect>();
+        scrollRect.horizontal = false;
+        scrollRect.vertical = true;
+
+        GameObject viewport = new GameObject("Viewport");
+        viewport.transform.SetParent(scrollGO.transform, false);
+        RectTransform vpRT = viewport.AddComponent<RectTransform>();
+        vpRT.anchorMin = Vector2.zero;
+        vpRT.anchorMax = Vector2.one;
+        vpRT.offsetMin = Vector2.zero;
+        vpRT.offsetMax = Vector2.zero;
+        Image vpImg = viewport.AddComponent<Image>();
+        vpImg.color = new Color(1f, 1f, 1f, 0.01f);
+        viewport.AddComponent<Mask>().showMaskGraphic = false;
+
+        // Content는 ContentSizeFitter로 세로 크기가 텍스트 길이에 맞춰 자동으로 자라야 하므로,
+        // SetupText(고정 앵커 박스 전제)를 쓰지 않고 위쪽 고정(anchorMin.y=anchorMax.y=1, pivot.y=1)
+        // + 가로만 꽉 채우는 앵커를 직접 구성한다 — SetupText를 쓰면 앵커가 (0,0)-(0,0)으로 다시
+        // 덮어써져서 이 자동 성장 레이아웃이 깨진다.
+        GameObject contentGO = new GameObject("Content");
+        contentGO.transform.SetParent(viewport.transform, false);
+        RectTransform contentRT = contentGO.AddComponent<RectTransform>();
+        contentRT.anchorMin = new Vector2(0f, 1f);
+        contentRT.anchorMax = new Vector2(1f, 1f);
+        contentRT.pivot = new Vector2(0.5f, 1f);
+        contentRT.anchoredPosition = Vector2.zero;
+        contentRT.sizeDelta = Vector2.zero;
+
+        TMP_Text contentText = contentGO.AddComponent<TextMeshProUGUI>();
+        contentText.text = "";
+        contentText.font = font;
+        contentText.fontSize = 17f;
+        contentText.lineSpacing = 6f; // 가독성 보강 — 줄 간격을 살짝 넓혀 섹션 구분이 눈에 더 잘 들어오게
+        contentText.alignment = TextAlignmentOptions.TopLeft;
+        contentText.color = Color.white;
+        contentText.richText = true; // GardenFlowerInfoPanel이 <b>/<color> 태그로 제목·수치를 강조한다
+        contentText.enableWordWrapping = true;
+        contentText.overflowMode = TextOverflowModes.Overflow;
+
+        ContentSizeFitter contentCsf = contentGO.AddComponent<ContentSizeFitter>();
+        contentCsf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        scrollRect.viewport = vpRT;
+        scrollRect.content = contentRT;
+
+        // 버튼 행 (손질하기 / 제거 / 닫기)
+        GameObject buttonRow = new GameObject("ButtonRow");
+        buttonRow.transform.SetParent(card.transform, false);
+        LayoutElement buttonRowLE = buttonRow.AddComponent<LayoutElement>();
+        buttonRowLE.preferredHeight = 52f;
+        HorizontalLayoutGroup buttonRowLayout = buttonRow.AddComponent<HorizontalLayoutGroup>();
+        buttonRowLayout.spacing = 12f;
+        buttonRowLayout.childForceExpandWidth = true;
+        buttonRowLayout.childForceExpandHeight = true;
+        buttonRowLayout.childControlWidth = true;
+        buttonRowLayout.childControlHeight = true;
+
+        // 시듦 복구 터치(작업 지시 3.4) — 이 꽃이 배치된 타일을 "손질"한다. 골드는 일반 터치와 동일,
+        // 유대는 절대 안 쌓인다(청소 행위). 라벨은 런타임에 GardenFlowerInfoPanel이 진행도로 갱신한다.
+        Button tendButton = CreateSimpleTextButton(buttonRow.transform, "손질하기", font, new Color(0.3f, 0.45f, 0.3f, 1f));
+        Button removeButton = CreateSimpleTextButton(buttonRow.transform, "제거", font, new Color(0.55f, 0.2f, 0.25f, 1f));
+        Button closeButton = CreateSimpleTextButton(buttonRow.transform, "닫기", font, new Color(1f, 0.35f, 0.62f, 1f));
+
+        GardenFlowerInfoPanel info = popupRoot.AddComponent<GardenFlowerInfoPanel>();
+        info.root = popupRoot;
+        info.contentText = contentText;
+        info.tendButton = tendButton;
+        info.tendButtonText = tendButton.GetComponentInChildren<TMP_Text>();
+        if (info.tendButtonText != null)
+        {
+            // "손질 (0/3)" 같은 진행도 문구가 3분할된 좁은 버튼 폭을 넘어가 글씨가 밖으로 삐져나오던
+            // 문제(신고됨) — 고정 폰트 크기 대신 자동 크기 조절을 켜서, 글자 수가 몇이든 버튼 안에
+            // 항상 맞게 줄어들도록 한다. 한 줄 유지가 목적이라 줄바꿈은 끈다.
+            info.tendButtonText.enableAutoSizing = true;
+            info.tendButtonText.fontSizeMin = 10f;
+            info.tendButtonText.fontSizeMax = 18f;
+            info.tendButtonText.enableWordWrapping = false;
+        }
+        info.removeButton = removeButton;
+        info.closeButton = closeButton;
+
+        // popupRoot는 절대 SetActive(false)로 끄지 않는다 — GardenFlowerInfoPanel.Awake()가
+        // CanvasGroup으로 숨김을 처리한다(OfflineSummaryPopup과 동일 원칙).
+        return info;
+    }
+
+    /// <summary> 텍스트 하나만 있는 단순 버튼(배경색+라벨)을 만든다 — 정보 패널의 제거/닫기 버튼 공용. </summary>
+    static Button CreateSimpleTextButton(Transform parent, string label, TMP_FontAsset font, Color bgColor)
+    {
+        GameObject go = new GameObject(label + "Button");
+        go.transform.SetParent(parent, false);
+        Image bg = go.AddComponent<Image>();
+        bg.color = bgColor;
+        Button button = go.AddComponent<Button>();
+        button.targetGraphic = bg;
+
+        GameObject labelGO = new GameObject("Label");
+        labelGO.transform.SetParent(go.transform, false);
+        SetupText(labelGO, label, font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        return button;
+    }
+
+    const string GARDEN_CELL_PREFAB_PATH = "Assets/Project/Prefabs/GardenCell.prefab";
+    const string GARDEN_ROSTER_ITEM_PREFAB_PATH = "Assets/Project/Prefabs/GardenRosterItem.prefab";
+
+    static Button GetOrCreateGardenCellPrefab()
+    {
+        Button existing = AssetDatabase.LoadAssetAtPath<Button>(GARDEN_CELL_PREFAB_PATH);
+        if (existing != null) return existing;
+
+        TMP_FontAsset font = LoadNotoFont();
+
+        GameObject temp = new GameObject("GardenCell");
+        RectTransform rt = temp.AddComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(80f, 80f); // 실제 크기는 GridLayoutGroup.cellSize가 정하지만(런타임에 덮어씀), 인스펙터 미리보기용으로 실제 값과 맞춰 둔다
+
+        Image bg = temp.AddComponent<Image>();
+        bg.color = new Color(1f, 1f, 1f, 0.08f);
+
+        Button button = temp.AddComponent<Button>();
+        button.targetGraphic = bg;
+
+        GameObject labelGO = new GameObject("Label");
+        labelGO.transform.SetParent(temp.transform, false);
+        // 칸이 커지면서(80px) 이름+유대+배율+손질 진행도까지 최대 4줄이 들어갈 수 있어 11→12pt로 살짝 키웠다.
+        SetupText(labelGO, "", font, 12f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, new Vector2(2f, 2f), new Vector2(-2f, -2f));
+
+        GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(temp, GARDEN_CELL_PREFAB_PATH);
+        Object.DestroyImmediate(temp);
+
+        return savedPrefab != null ? savedPrefab.GetComponent<Button>() : null;
+    }
+
+    static Button GetOrCreateGardenRosterItemPrefab()
+    {
+        Button existing = AssetDatabase.LoadAssetAtPath<Button>(GARDEN_ROSTER_ITEM_PREFAB_PATH);
+        if (existing != null) return existing;
+
+        TMP_FontAsset font = LoadNotoFont();
+
+        GameObject temp = new GameObject("GardenRosterItem");
+        RectTransform rt = temp.AddComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(90f, 120f);
+        LayoutElement le = temp.AddComponent<LayoutElement>();
+        le.preferredWidth = 90f;
+        le.preferredHeight = 120f;
+
+        Image bg = temp.AddComponent<Image>();
+        bg.color = new Color(1f, 1f, 1f, 0.12f);
+
+        Button button = temp.AddComponent<Button>();
+        button.targetGraphic = bg;
+
+        // 위쪽 45% — 이름 + 유대 레벨
+        GameObject labelGO = new GameObject("Label");
+        labelGO.transform.SetParent(temp.transform, false);
+        SetupText(labelGO, "-", font, 13f, TextAlignmentOptions.Center,
+                  new Vector2(0f, 0.55f), Vector2.one, new Vector2(4f, 2f), new Vector2(-4f, -4f));
+
+        // 아래쪽 55% — 모양 미리보기(빈 컨테이너, 실제 칸은 GardenPanel이 꽃마다 런타임에 채운다:
+        // 꽃마다 gardenShape 크기/모양이 달라 프리팹 하나로 고정해 둘 수 없기 때문).
+        GameObject shapePreviewGO = new GameObject("ShapePreview");
+        shapePreviewGO.transform.SetParent(temp.transform, false);
+        RectTransform previewRT = shapePreviewGO.AddComponent<RectTransform>();
+        previewRT.anchorMin = new Vector2(0f, 0f);
+        previewRT.anchorMax = new Vector2(1f, 0.55f);
+        previewRT.offsetMin = new Vector2(4f, 4f);
+        previewRT.offsetMax = new Vector2(-4f, -2f);
+        GridLayoutGroup previewGrid = shapePreviewGO.AddComponent<GridLayoutGroup>();
+        previewGrid.cellSize = new Vector2(12f, 12f);
+        previewGrid.spacing = new Vector2(2f, 2f);
+        previewGrid.childAlignment = TextAnchor.MiddleCenter;
+        previewGrid.startCorner = GridLayoutGroup.Corner.UpperLeft;
+        previewGrid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+        previewGrid.constraintCount = 1; // 런타임에 GardenPanel.BuildShapePreview가 꽃 모양 너비로 덮어씀
+
+        GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(temp, GARDEN_ROSTER_ITEM_PREFAB_PATH);
+        Object.DestroyImmediate(temp);
+
+        return savedPrefab != null ? savedPrefab.GetComponent<Button>() : null;
+    }
+
     // ── Placeholder 카드 패널 생성 ─────────────────────────────────────────
     static GameObject CreatePlaceholderPanel(Transform parent, string name, string titleStr, string descStr, Color bgColor)
     {
@@ -1125,7 +1555,7 @@ public static class PCLayoutBuilder
         cardRT.anchorMax = new Vector2(0.5f, 0.5f);
         cardRT.pivot = new Vector2(0.5f, 0.5f);
         cardRT.anchoredPosition = Vector2.zero;
-        cardRT.sizeDelta = new Vector2(460f, 420f);
+        cardRT.sizeDelta = new Vector2(460f, 490f); // 정원 요약(GardenSummaryText) 한 줄만큼 기존보다 키움
 
         Image cardBg = card.AddComponent<Image>();
         cardBg.color = new Color(0.14f, 0.1f, 0.14f, 0.97f);
@@ -1173,6 +1603,16 @@ public static class PCLayoutBuilder
         SetupText(goldGO, "-", font, 22f, TextAlignmentOptions.Center,
                   Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
 
+        // GardenSummaryText (정원 유대/시듦 요약 — 정원을 안 쓰면 텍스트가 비어 있어 사실상 안 보임)
+        GameObject gardenGO = new GameObject("GardenSummarySection");
+        gardenGO.transform.SetParent(card.transform, false);
+        LayoutElement gardenLE = gardenGO.AddComponent<LayoutElement>();
+        gardenLE.preferredHeight = 60f;
+        SetupText(gardenGO, "", font, 15f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        TMP_Text gardenText = gardenGO.GetComponent<TMP_Text>();
+        gardenText.color = new Color(0.75f, 0.85f, 0.75f, 1f);
+
         // CloseButton
         GameObject closeGO = new GameObject("CloseButton");
         closeGO.transform.SetParent(card.transform, false);
@@ -1197,6 +1637,7 @@ public static class PCLayoutBuilder
         popup.goldEarnedText          = goldGO.GetComponent<TMP_Text>();
         popup.bloomedFlowersText      = bloomText;
         popup.bloomedFlowersSection   = bloomSection;
+        popup.gardenSummaryText       = gardenText;
         popup.closeButton             = closeButton;
 
         // popupRoot는 절대 SetActive(false)로 끄지 않는다 — 비활성 오브젝트는 Awake/Start가 스킵되므로
@@ -1982,6 +2423,175 @@ public static class PCLayoutBuilder
         return savedPrefab != null ? savedPrefab.GetComponent<MemorialEntryItem>() : null;
     }
 
+    /// <summary>
+    /// 메모리얼 재생기(VN) 화면. MemorialViewPanel이 lines(태그 대본)가 있는 항목을 열 때 이 패널을
+    /// 재생한다. 배경/CG/Center 캐릭터가 아래에서 위로 쌓이고, 그 위에 전체화면 투명 탭 버튼(화면
+    /// 아무데나 탭하면 다음 줄로 진행)을 깔고, 다시 그 위에 대사창·상단 버튼바(로그/스킵/닫기)를
+    /// 얹는다 — 대사창 텍스트와 상단 버튼들은 raycastTarget을 각각 false/true로 둬서, 화면 탭은
+    /// 투명 버튼이 받고 버튼 클릭은 버튼 자신이 우선 가로채도록 한다(형제 순서상 나중에 추가된
+    /// 쪽이 위에 그려지고 레이캐스트도 먼저 받는다는 uGUI 규칙을 그대로 이용).
+    /// 로그 패널은 맨 나중에 추가해 항상 최상단에서 전체를 덮는다.
+    /// </summary>
+    static void BuildMemorialPlayerPanel(Transform canvasTransform)
+    {
+        Transform existing = canvasTransform.Find("MemorialPlayerPanel");
+        if (existing != null) Object.DestroyImmediate(existing.gameObject);
+
+        TMP_FontAsset font = LoadNotoFont();
+
+        GameObject panelRoot = new GameObject("MemorialPlayerPanel");
+        panelRoot.transform.SetParent(canvasTransform, false);
+        RectTransform rootRT = panelRoot.AddComponent<RectTransform>();
+        rootRT.anchorMin = Vector2.zero;
+        rootRT.anchorMax = Vector2.one;
+        rootRT.offsetMin = Vector2.zero;
+        rootRT.offsetMax = Vector2.zero;
+
+        Image rootBg = panelRoot.AddComponent<Image>();
+        rootBg.color = Color.black; // 배경 스프라이트가 없는 줄에서도 새카맣게 깔린다
+
+        // ── 배경 / Center 캐릭터 / CG (전부 raycastTarget 꺼서 탭이 아래로 새지 않게) ──
+        // [중요] CG는 배경과 캐릭터를 모두 덮는 전체화면 오버레이여야 하므로, 반드시 CenterCharacterImage
+        // "다음"(형제 순서상 나중)에 만들어야 한다 — uGUI는 나중에 추가된 형제를 위에 그린다.
+        GameObject bgGO = CreateStretchChild(panelRoot.transform, "BackgroundImage");
+        Image backgroundImage = bgGO.AddComponent<Image>();
+        backgroundImage.raycastTarget = false;
+        bgGO.SetActive(false);
+
+        GameObject centerGO = new GameObject("CenterCharacterImage");
+        centerGO.transform.SetParent(panelRoot.transform, false);
+        RectTransform centerRT = centerGO.AddComponent<RectTransform>();
+        centerRT.anchorMin = new Vector2(0.5f, 0f);
+        centerRT.anchorMax = new Vector2(0.5f, 0f);
+        centerRT.pivot = new Vector2(0.5f, 0f);
+        centerRT.sizeDelta = new Vector2(MOBILE_WIDTH * 0.85f, 900f);
+        centerRT.anchoredPosition = new Vector2(0f, 0f);
+        Image centerCharacterImage = centerGO.AddComponent<Image>();
+        centerCharacterImage.preserveAspect = true;
+        centerCharacterImage.raycastTarget = false;
+        centerGO.SetActive(false);
+
+        GameObject cgGO = CreateStretchChild(panelRoot.transform, "CGImage");
+        Image cgImage = cgGO.AddComponent<Image>();
+        cgImage.raycastTarget = false;
+        cgGO.SetActive(false);
+
+        // ── 화면 전체를 덮는 투명 탭 버튼 — 탭하면 다음 줄로 진행 ──
+        GameObject tapGO = CreateStretchChild(panelRoot.transform, "ScreenTapButton");
+        Image tapImg = tapGO.AddComponent<Image>();
+        tapImg.color = new Color(0f, 0f, 0f, 0f); // 완전 투명이지만 raycastTarget은 유지
+        Button screenTapButton = tapGO.AddComponent<Button>();
+        screenTapButton.targetGraphic = tapImg;
+        screenTapButton.transition = Selectable.Transition.None;
+
+        // ── 대사창 (하단 고정) ──
+        GameObject dialogueBox = new GameObject("DialogueBox");
+        dialogueBox.transform.SetParent(panelRoot.transform, false);
+        RectTransform boxRT = dialogueBox.AddComponent<RectTransform>();
+        boxRT.anchorMin = new Vector2(0f, 0f);
+        boxRT.anchorMax = new Vector2(1f, 0f);
+        boxRT.pivot = new Vector2(0.5f, 0f);
+        boxRT.sizeDelta = new Vector2(0f, 260f);
+        boxRT.anchoredPosition = new Vector2(0f, 16f);
+        Image boxBg = dialogueBox.AddComponent<Image>();
+        boxBg.color = new Color(0.05f, 0.04f, 0.07f, 0.88f);
+        boxBg.raycastTarget = false;
+
+        GameObject speakerGO = new GameObject("SpeakerNameText");
+        speakerGO.transform.SetParent(dialogueBox.transform, false);
+        SetupText(speakerGO, "", font, 22f, TextAlignmentOptions.Left,
+                  new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(24f, -44f), new Vector2(-24f, -8f));
+        TMP_Text speakerNameText = speakerGO.GetComponent<TMP_Text>();
+        speakerNameText.fontStyle = FontStyles.Bold;
+        speakerNameText.color = new Color(1f, 0.75f, 0.85f, 1f);
+        speakerNameText.raycastTarget = false;
+
+        GameObject dialogueGO = new GameObject("DialogueText");
+        dialogueGO.transform.SetParent(dialogueBox.transform, false);
+        SetupText(dialogueGO, "", font, 20f, TextAlignmentOptions.TopLeft,
+                  Vector2.zero, Vector2.one, new Vector2(24f, 16f), new Vector2(-24f, -48f));
+        TMP_Text dialogueText = dialogueGO.GetComponent<TMP_Text>();
+        dialogueText.color = Color.white;
+        dialogueText.raycastTarget = false;
+
+        // ── 상단 버튼바 (로그 / 스킵 / 닫기) — 탭 버튼보다 나중에 추가돼 클릭을 우선 가로챈다 ──
+        GameObject topBar = new GameObject("TopBar");
+        topBar.transform.SetParent(panelRoot.transform, false);
+        RectTransform topBarRT = topBar.AddComponent<RectTransform>();
+        topBarRT.anchorMin = new Vector2(1f, 1f);
+        topBarRT.anchorMax = new Vector2(1f, 1f);
+        topBarRT.pivot = new Vector2(1f, 1f);
+        topBarRT.sizeDelta = new Vector2(280f, 56f);
+        topBarRT.anchoredPosition = new Vector2(-10f, -10f);
+        HorizontalLayoutGroup topBarLayout = topBar.AddComponent<HorizontalLayoutGroup>();
+        topBarLayout.childForceExpandWidth = true;
+        topBarLayout.childForceExpandHeight = true;
+        topBarLayout.childControlWidth = true;
+        topBarLayout.childControlHeight = true;
+        topBarLayout.spacing = 8f;
+
+        Button logToggleButton = CreateTabButton(topBar.transform, "LogButton", "로그", font);
+        Button skipButton = CreateTabButton(topBar.transform, "SkipButton", "스킵", font);
+        TMP_Text skipButtonText = skipButton.GetComponentInChildren<TMP_Text>();
+        Button closeButton = CreateTabButton(topBar.transform, "CloseButton", "X", font);
+
+        // ── 로그 패널 (맨 나중에 추가 — 항상 최상단에서 전체를 덮는다) ──
+        GameObject logPanelRoot = new GameObject("LogPanelRoot");
+        logPanelRoot.transform.SetParent(panelRoot.transform, false);
+        RectTransform logRT = logPanelRoot.AddComponent<RectTransform>();
+        logRT.anchorMin = Vector2.zero;
+        logRT.anchorMax = Vector2.one;
+        logRT.offsetMin = Vector2.zero;
+        logRT.offsetMax = Vector2.zero;
+        Image logDim = logPanelRoot.AddComponent<Image>();
+        logDim.color = new Color(0f, 0f, 0f, 0.9f);
+
+        GameObject logScroll = new GameObject("Scroll View");
+        logScroll.transform.SetParent(logPanelRoot.transform, false);
+        RectTransform logScrollRT = logScroll.AddComponent<RectTransform>();
+        logScrollRT.anchorMin = Vector2.zero;
+        logScrollRT.anchorMax = Vector2.one;
+        logScrollRT.offsetMin = new Vector2(0f, 76f); // 하단 닫기 버튼 자리
+        logScrollRT.offsetMax = Vector2.zero;
+        RectTransform logContent = SetupVerticalScrollContent(logScroll, new RectOffset(20, 20, 20, 20));
+
+        GameObject logCloseGO = new GameObject("LogCloseButton");
+        logCloseGO.transform.SetParent(logPanelRoot.transform, false);
+        RectTransform logCloseRT = logCloseGO.AddComponent<RectTransform>();
+        logCloseRT.anchorMin = new Vector2(0f, 0f);
+        logCloseRT.anchorMax = new Vector2(1f, 0f);
+        logCloseRT.pivot = new Vector2(0.5f, 0f);
+        logCloseRT.sizeDelta = new Vector2(0f, 64f);
+        logCloseRT.anchoredPosition = new Vector2(0f, 8f);
+        Image logCloseBg = logCloseGO.AddComponent<Image>();
+        logCloseBg.color = new Color(0.3f, 0.3f, 0.35f, 1f);
+        Button logCloseButton = logCloseGO.AddComponent<Button>();
+        logCloseButton.targetGraphic = logCloseBg;
+        GameObject logCloseLabelGO = new GameObject("Label");
+        logCloseLabelGO.transform.SetParent(logCloseGO.transform, false);
+        SetupText(logCloseLabelGO, "닫기", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        logPanelRoot.SetActive(false);
+
+        // ── MemorialPlayerPanel 컴포넌트 연결 ──
+        MemorialPlayerPanel player = panelRoot.AddComponent<MemorialPlayerPanel>();
+        player.root = panelRoot;
+        player.backgroundImage = backgroundImage;
+        player.cgImage = cgImage;
+        player.centerCharacterImage = centerCharacterImage;
+        player.speakerNameText = speakerNameText;
+        player.dialogueText = dialogueText;
+        player.screenTapButton = screenTapButton;
+        player.logPanelRoot = logPanelRoot;
+        player.logContent = logContent.transform;
+        player.logToggleButton = logToggleButton;
+        player.logCloseButton = logCloseButton;
+        player.skipButton = skipButton;
+        player.skipButtonText = skipButtonText;
+        player.closeButton = closeButton;
+    }
+
     // ── SettingsPanel 생성 (설정 화면 — 도감/메모리얼과 동일한 전체 오버레이 방식) ──
     //
     // [확장 방법] 지금은 "데이터 초기화" 한 줄뿐이다. BGM/효과음 볼륨, FPS 제한, 튜토리얼 다시보기
@@ -2056,6 +2666,11 @@ public static class PCLayoutBuilder
             "데이터 초기화", "저장된 진행 상황을 전부 지우고 처음부터 다시 시작합니다.\n되돌릴 수 없습니다.",
             new Color(0.55f, 0.2f, 0.2f, 1f));
 
+        // ── 치트 모드 항목 — 비밀번호(1204)를 맞혀야만 CheatPanel이 열린다(빌드된 게임에서도 접근 가능) ──
+        (Button cheatButton, _) = CreateSettingsButtonRow(bodyContent.transform, font,
+            "치트 모드", "비밀번호를 입력하면 개발자용 치트 패널을 엽니다.",
+            new Color(0.35f, 0.3f, 0.15f, 1f));
+
         // ── 확인 오버레이 (패널 직계 자식, 기본 비활성 — SetAsLastSibling으로 항상 맨 위에 그려지게 함) ──
         GameObject confirmRoot = CreateStretchChild(panelRoot.transform, "ResetConfirmOverlay");
         Image confirmDim = confirmRoot.AddComponent<Image>();
@@ -2116,6 +2731,83 @@ public static class PCLayoutBuilder
         confirmRoot.SetActive(false);
         confirmRoot.transform.SetAsLastSibling();
 
+        // ── 치트 비밀번호 입력 오버레이 (패널 직계 자식, 기본 비활성 — 확인 오버레이와 동일 구조) ──
+        GameObject cheatPwRoot = CreateStretchChild(panelRoot.transform, "CheatPasswordOverlay");
+        Image cheatPwDim = cheatPwRoot.AddComponent<Image>();
+        cheatPwDim.color = new Color(0f, 0f, 0f, 0.85f);
+
+        GameObject cheatPwBox = new GameObject("Box");
+        cheatPwBox.transform.SetParent(cheatPwRoot.transform, false);
+        RectTransform cheatPwBoxRT = cheatPwBox.AddComponent<RectTransform>();
+        cheatPwBoxRT.anchorMin = new Vector2(0.5f, 0.5f);
+        cheatPwBoxRT.anchorMax = new Vector2(0.5f, 0.5f);
+        cheatPwBoxRT.pivot = new Vector2(0.5f, 0.5f);
+        cheatPwBoxRT.sizeDelta = new Vector2(440f, 260f);
+        Image cheatPwBoxBg = cheatPwBox.AddComponent<Image>();
+        cheatPwBoxBg.color = new Color(0.15f, 0.13f, 0.15f, 1f);
+
+        GameObject cheatPwTitleGO = new GameObject("Text");
+        cheatPwTitleGO.transform.SetParent(cheatPwBox.transform, false);
+        SetupText(cheatPwTitleGO, "치트 모드 비밀번호를 입력하세요.",
+                  font, 18f, TextAlignmentOptions.Center,
+                  new Vector2(0f, 0.72f), new Vector2(1f, 1f), new Vector2(20f, 0f), new Vector2(-20f, -20f));
+
+        TMP_InputField cheatPwInput = CreateNumericInputField(cheatPwBox.transform, "PasswordInput", "비밀번호", font);
+        RectTransform cheatPwInputRT = cheatPwInput.GetComponent<RectTransform>();
+        cheatPwInputRT.anchorMin = new Vector2(0.15f, 0.5f);
+        cheatPwInputRT.anchorMax = new Vector2(0.85f, 0.68f);
+        cheatPwInputRT.offsetMin = Vector2.zero;
+        cheatPwInputRT.offsetMax = Vector2.zero;
+        cheatPwInput.contentType = TMP_InputField.ContentType.IntegerNumber;
+        cheatPwInput.characterLimit = 8;
+
+        GameObject cheatPwErrorGO = new GameObject("ErrorText");
+        cheatPwErrorGO.transform.SetParent(cheatPwBox.transform, false);
+        SetupText(cheatPwErrorGO, "비밀번호가 틀렸습니다.", font, 14f, TextAlignmentOptions.Center,
+                  new Vector2(0f, 0.38f), new Vector2(1f, 0.5f), new Vector2(20f, 0f), new Vector2(-20f, 0f));
+        TMP_Text cheatPwErrorText = cheatPwErrorGO.GetComponent<TMP_Text>();
+        cheatPwErrorText.color = new Color(1f, 0.4f, 0.4f, 1f);
+        cheatPwErrorGO.SetActive(false);
+
+        GameObject cheatPwButtonRow = new GameObject("ButtonRow");
+        cheatPwButtonRow.transform.SetParent(cheatPwBox.transform, false);
+        RectTransform cheatPwRowRT = cheatPwButtonRow.AddComponent<RectTransform>();
+        cheatPwRowRT.anchorMin = new Vector2(0f, 0f);
+        cheatPwRowRT.anchorMax = new Vector2(1f, 0.32f);
+        cheatPwRowRT.offsetMin = new Vector2(20f, 20f);
+        cheatPwRowRT.offsetMax = new Vector2(-20f, 0f);
+        HorizontalLayoutGroup cheatPwRowLayout = cheatPwButtonRow.AddComponent<HorizontalLayoutGroup>();
+        cheatPwRowLayout.childForceExpandWidth = true;
+        cheatPwRowLayout.childForceExpandHeight = true;
+        cheatPwRowLayout.childControlWidth = true;
+        cheatPwRowLayout.childControlHeight = true;
+        cheatPwRowLayout.spacing = 12f;
+
+        GameObject cheatPwCancelGO = new GameObject("CancelButton");
+        cheatPwCancelGO.transform.SetParent(cheatPwButtonRow.transform, false);
+        Image cheatPwCancelBg = cheatPwCancelGO.AddComponent<Image>();
+        cheatPwCancelBg.color = new Color(0.3f, 0.3f, 0.35f, 1f);
+        Button cheatPwCancelButton = cheatPwCancelGO.AddComponent<Button>();
+        cheatPwCancelButton.targetGraphic = cheatPwCancelBg;
+        GameObject cheatPwCancelLabelGO = new GameObject("Label");
+        cheatPwCancelLabelGO.transform.SetParent(cheatPwCancelGO.transform, false);
+        SetupText(cheatPwCancelLabelGO, "취소", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        GameObject cheatPwConfirmGO = new GameObject("ConfirmButton");
+        cheatPwConfirmGO.transform.SetParent(cheatPwButtonRow.transform, false);
+        Image cheatPwConfirmBg = cheatPwConfirmGO.AddComponent<Image>();
+        cheatPwConfirmBg.color = new Color(0.65f, 0.55f, 0.2f, 1f);
+        Button cheatPwConfirmButton = cheatPwConfirmGO.AddComponent<Button>();
+        cheatPwConfirmButton.targetGraphic = cheatPwConfirmBg;
+        GameObject cheatPwConfirmLabelGO = new GameObject("Label");
+        cheatPwConfirmLabelGO.transform.SetParent(cheatPwConfirmGO.transform, false);
+        SetupText(cheatPwConfirmLabelGO, "확인", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        cheatPwRoot.SetActive(false);
+        cheatPwRoot.transform.SetAsLastSibling();
+
         SettingsPanel panel = panelRoot.AddComponent<SettingsPanel>();
         panel.root = panelRoot;
         panel.closeButton = closeButton;
@@ -2123,8 +2815,251 @@ public static class PCLayoutBuilder
         panel.resetConfirmRoot = confirmRoot;
         panel.resetConfirmYesButton = yesButton;
         panel.resetConfirmNoButton = noButton;
+        panel.cheatButton = cheatButton;
+        panel.cheatPasswordRoot = cheatPwRoot;
+        panel.cheatPasswordInput = cheatPwInput;
+        panel.cheatPasswordErrorText = cheatPwErrorText;
+        panel.cheatPasswordConfirmButton = cheatPwConfirmButton;
+        panel.cheatPasswordCancelButton = cheatPwCancelButton;
 
         return panel;
+    }
+
+    /// <summary>
+    /// 치트 패널 — SettingsPanel에서 비밀번호(1204)를 맞혀야만 열린다. 도감/설정과 동일한 전체
+    /// 화면 오버레이 구조(헤더 + 세로 스크롤 본문)이고, 그 아래 항상 고정된 "결과 출력" 스크롤
+    /// 박스를 하나 더 둬서 Debug.Log 대신 화면에서 바로 결과를 확인할 수 있게 한다(빌드된 게임엔
+    /// Console이 없으므로).
+    /// </summary>
+    static void BuildCheatPanel(Transform canvasTransform)
+    {
+        Transform existing = canvasTransform.Find("CheatPanel");
+        if (existing != null) Object.DestroyImmediate(existing.gameObject);
+
+        TMP_FontAsset font = LoadNotoFont();
+
+        GameObject panelRoot = new GameObject("CheatPanel");
+        panelRoot.transform.SetParent(canvasTransform, false);
+        RectTransform rootRT = panelRoot.AddComponent<RectTransform>();
+        rootRT.anchorMin = Vector2.zero;
+        rootRT.anchorMax = Vector2.one;
+        rootRT.offsetMin = Vector2.zero;
+        rootRT.offsetMax = Vector2.zero;
+
+        Image dim = panelRoot.AddComponent<Image>();
+        dim.color = new Color(0f, 0f, 0f, 0.94f);
+
+        // ── Header ──
+        GameObject header = new GameObject("Header");
+        header.transform.SetParent(panelRoot.transform, false);
+        RectTransform hrt = header.AddComponent<RectTransform>();
+        hrt.anchorMin = new Vector2(0f, 1f);
+        hrt.anchorMax = new Vector2(1f, 1f);
+        hrt.pivot = new Vector2(0.5f, 1f);
+        hrt.sizeDelta = new Vector2(0f, DEX_HEADER_HEIGHT);
+        Image hImg = header.AddComponent<Image>();
+        hImg.color = new Color(0.22f, 0.18f, 0.1f, 1f); // 치트 창임을 색으로도 구분(설정/도감과 다른 톤)
+
+        GameObject title = new GameObject("Title");
+        title.transform.SetParent(header.transform, false);
+        SetupText(title, "치트 모드", font, 28f, TextAlignmentOptions.Left,
+                  Vector2.zero, Vector2.one, new Vector2(24f, 0f), new Vector2(-80f, 0f));
+
+        GameObject closeGO = new GameObject("CloseButton");
+        closeGO.transform.SetParent(header.transform, false);
+        RectTransform closeRT = closeGO.AddComponent<RectTransform>();
+        closeRT.anchorMin = new Vector2(1f, 0f);
+        closeRT.anchorMax = new Vector2(1f, 1f);
+        closeRT.pivot = new Vector2(1f, 0.5f);
+        closeRT.sizeDelta = new Vector2(60f, 0f);
+        closeRT.anchoredPosition = new Vector2(-10f, 0f);
+        Image closeBg = closeGO.AddComponent<Image>();
+        closeBg.color = new Color(1f, 0.35f, 0.62f, 1f);
+        Button closeButton = closeGO.AddComponent<Button>();
+        closeButton.targetGraphic = closeBg;
+        GameObject closeLabelGO = new GameObject("Label");
+        closeLabelGO.transform.SetParent(closeGO.transform, false);
+        SetupText(closeLabelGO, "X", font, 22f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+
+        // ── 결과 출력 박스 (하단 고정, 항상 보임) ──
+        const float RESULT_BOX_HEIGHT = 220f;
+        GameObject resultBox = new GameObject("ResultBox");
+        resultBox.transform.SetParent(panelRoot.transform, false);
+        RectTransform resultBoxRT = resultBox.AddComponent<RectTransform>();
+        resultBoxRT.anchorMin = new Vector2(0f, 0f);
+        resultBoxRT.anchorMax = new Vector2(1f, 0f);
+        resultBoxRT.pivot = new Vector2(0.5f, 0f);
+        resultBoxRT.sizeDelta = new Vector2(0f, RESULT_BOX_HEIGHT);
+        Image resultBoxBg = resultBox.AddComponent<Image>();
+        resultBoxBg.color = new Color(0.08f, 0.08f, 0.1f, 1f);
+
+        RectTransform resultScrollContent = SetupVerticalScrollContent(resultBox, new RectOffset(16, 16, 12, 12));
+        GameObject resultTextGO = new GameObject("Text");
+        resultTextGO.transform.SetParent(resultScrollContent.transform, false);
+        SetupText(resultTextGO, "결과가 여기 표시됩니다.", font, 16f, TextAlignmentOptions.TopLeft,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        TMP_Text resultText = resultTextGO.GetComponent<TMP_Text>();
+        resultText.color = new Color(0.85f, 0.9f, 0.85f, 1f);
+        LayoutElement resultTextLE = resultTextGO.AddComponent<LayoutElement>();
+        resultTextLE.flexibleWidth = 1f;
+
+        // ── Body: 세로 스크롤 (헤더 아래 ~ 결과 박스 위) ──
+        GameObject bodyScroll = new GameObject("Scroll View");
+        bodyScroll.transform.SetParent(panelRoot.transform, false);
+        RectTransform bodyRT = bodyScroll.AddComponent<RectTransform>();
+        bodyRT.anchorMin = Vector2.zero;
+        bodyRT.anchorMax = Vector2.one;
+        bodyRT.offsetMin = new Vector2(0f, RESULT_BOX_HEIGHT);
+        bodyRT.offsetMax = new Vector2(0f, -DEX_HEADER_HEIGHT);
+        RectTransform bodyContent = SetupVerticalScrollContent(bodyScroll, new RectOffset(20, 20, 20, 20));
+
+        // ── 1. 골드 ──
+        CreateCheatSectionLabel(bodyContent.transform, font, "1. 골드");
+        TMP_InputField goldInput = CreateNumericInputField(bodyContent.transform, "GoldInput", "골드 값", font);
+        LayoutElement goldInputLE = goldInput.gameObject.AddComponent<LayoutElement>();
+        goldInputLE.preferredHeight = 48f;
+        goldInput.contentType = TMP_InputField.ContentType.IntegerNumber;
+        goldInput.characterLimit = 15;
+
+        GameObject goldButtonRow = CreateCheatButtonRow(bodyContent.transform, 48f);
+        Button goldAddButton = CreateTabButton(goldButtonRow.transform, "AddButton", "추가", font);
+        Button goldSetButton = CreateTabButton(goldButtonRow.transform, "SetButton", "설정", font);
+
+        GameObject goldPresetRow = CreateCheatButtonRow(bodyContent.transform, 44f);
+        Button gold10kButton = CreateTabButton(goldPresetRow.transform, "Preset10k", "+1만", font);
+        Button gold1mButton = CreateTabButton(goldPresetRow.transform, "Preset1m", "+100만", font);
+        Button gold100mButton = CreateTabButton(goldPresetRow.transform, "Preset100m", "+1억", font);
+        Button gold1tButton = CreateTabButton(goldPresetRow.transform, "Preset1t", "+1조", font);
+
+        // ── 2. 시간 스킵 ──
+        CreateCheatSectionLabel(bodyContent.transform, font, "2. 시간 스킵");
+        GameObject skipRow1 = CreateCheatButtonRow(bodyContent.transform, 48f);
+        Button skip1hButton = CreateTabButton(skipRow1.transform, "Skip1h", "1h", font);
+        Button skip6hButton = CreateTabButton(skipRow1.transform, "Skip6h", "6h", font);
+        Button skip12hButton = CreateTabButton(skipRow1.transform, "Skip12h", "12h", font);
+        GameObject skipRow2 = CreateCheatButtonRow(bodyContent.transform, 48f);
+        Button skip24hButton = CreateTabButton(skipRow2.transform, "Skip24h", "24h", font);
+        Button skip48hButton = CreateTabButton(skipRow2.transform, "Skip48h", "48h", font);
+        Button skip72hButton = CreateTabButton(skipRow2.transform, "Skip72h", "72h", font);
+
+        // ── 3. 꽃 선택 (개화/레벨/유대 공용) ──
+        CreateCheatSectionLabel(bodyContent.transform, font, "3. 꽃 선택 / 개화 / 레벨 / 유대");
+        GameObject flowerPickRow = CreateCheatButtonRow(bodyContent.transform, 52f);
+        Button prevFlowerButton = CreateTabButton(flowerPickRow.transform, "PrevButton", "◀", font);
+        GameObject flowerNameGO = new GameObject("FlowerNameText");
+        flowerNameGO.transform.SetParent(flowerPickRow.transform, false);
+        SetupText(flowerNameGO, "-", font, 20f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        TMP_Text flowerNameText = flowerNameGO.GetComponent<TMP_Text>();
+        LayoutElement flowerNameLE = flowerNameGO.AddComponent<LayoutElement>();
+        flowerNameLE.flexibleWidth = 2f;
+        Button nextFlowerButton = CreateTabButton(flowerPickRow.transform, "NextButton", "▶", font);
+
+        Button forceBloomButton = CreateTabButton(bodyContent.transform, "ForceBloomButton", "선택한 꽃 즉시 개화", font);
+        forceBloomButton.gameObject.AddComponent<LayoutElement>().preferredHeight = 48f;
+
+        GameObject levelRow = CreateCheatButtonRow(bodyContent.transform, 48f);
+        TMP_InputField levelInput = CreateNumericInputField(levelRow.transform, "LevelInput", "레벨", font);
+        levelInput.characterLimit = 6;
+        Button setLevelButton = CreateTabButton(levelRow.transform, "SetLevelButton", "레벨 설정", font);
+
+        GameObject bondRow = CreateCheatButtonRow(bodyContent.transform, 48f);
+        TMP_InputField bondLevelInput = CreateNumericInputField(bondRow.transform, "BondLevelInput", "유대 Lv(0~5)", font);
+        bondLevelInput.characterLimit = 1;
+        Button setBondLevelButton = CreateTabButton(bondRow.transform, "SetBondLevelButton", "유대 설정", font);
+
+        // ── 4. 정원 · 시듦 ──
+        CreateCheatSectionLabel(bodyContent.transform, font, "4. 정원 · 시듦");
+        GameObject wiltPickRow = CreateCheatButtonRow(bodyContent.transform, 52f);
+        Button prevWiltButton = CreateTabButton(wiltPickRow.transform, "PrevWiltButton", "◀", font);
+        GameObject wiltStageGO = new GameObject("WiltStageText");
+        wiltStageGO.transform.SetParent(wiltPickRow.transform, false);
+        SetupText(wiltStageGO, "-", font, 18f, TextAlignmentOptions.Center,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        TMP_Text wiltStageText = wiltStageGO.GetComponent<TMP_Text>();
+        LayoutElement wiltStageLE = wiltStageGO.AddComponent<LayoutElement>();
+        wiltStageLE.flexibleWidth = 2f;
+        Button nextWiltButton = CreateTabButton(wiltPickRow.transform, "NextWiltButton", "▶", font);
+
+        Button applyWiltStageButton = CreateTabButton(bodyContent.transform, "ApplyWiltStageButton", "선택한 시듦 단계 적용", font);
+        applyWiltStageButton.gameObject.AddComponent<LayoutElement>().preferredHeight = 48f;
+
+        Button restoreGardenButton = CreateTabButton(bodyContent.transform, "RestoreGardenButton", "정원 즉시 복구", font);
+        restoreGardenButton.gameObject.AddComponent<LayoutElement>().preferredHeight = 48f;
+
+        // ── 5. 진단 ──
+        CreateCheatSectionLabel(bodyContent.transform, font, "5. 진단 출력");
+        Button diagnosticsButton = CreateTabButton(bodyContent.transform, "DiagnosticsButton", "현재 상태 출력", font);
+        diagnosticsButton.gameObject.AddComponent<LayoutElement>().preferredHeight = 48f;
+
+        // ── CheatPanel 컴포넌트 연결 ──
+        CheatPanel panel = panelRoot.AddComponent<CheatPanel>();
+        panel.root = panelRoot;
+        panel.closeButton = closeButton;
+
+        panel.goldAmountInput = goldInput;
+        panel.goldAddButton = goldAddButton;
+        panel.goldSetButton = goldSetButton;
+        panel.gold10kButton = gold10kButton;
+        panel.gold1mButton = gold1mButton;
+        panel.gold100mButton = gold100mButton;
+        panel.gold1tButton = gold1tButton;
+
+        panel.skip1hButton = skip1hButton;
+        panel.skip6hButton = skip6hButton;
+        panel.skip12hButton = skip12hButton;
+        panel.skip24hButton = skip24hButton;
+        panel.skip48hButton = skip48hButton;
+        panel.skip72hButton = skip72hButton;
+
+        panel.prevFlowerButton = prevFlowerButton;
+        panel.nextFlowerButton = nextFlowerButton;
+        panel.flowerNameText = flowerNameText;
+        panel.forceBloomButton = forceBloomButton;
+        panel.levelInput = levelInput;
+        panel.setLevelButton = setLevelButton;
+        panel.bondLevelInput = bondLevelInput;
+        panel.setBondLevelButton = setBondLevelButton;
+
+        panel.prevWiltButton = prevWiltButton;
+        panel.nextWiltButton = nextWiltButton;
+        panel.wiltStageText = wiltStageText;
+        panel.applyWiltStageButton = applyWiltStageButton;
+        panel.restoreGardenButton = restoreGardenButton;
+
+        panel.diagnosticsButton = diagnosticsButton;
+        panel.resultText = resultText;
+    }
+
+    /// <summary> 치트 패널 세로 스크롤 본문에 섹션 제목 한 줄을 추가한다("1. 골드" 같은). </summary>
+    static void CreateCheatSectionLabel(Transform parent, TMP_FontAsset font, string text)
+    {
+        GameObject go = new GameObject($"Label_{text}");
+        go.transform.SetParent(parent, false);
+        SetupText(go, text, font, 20f, TextAlignmentOptions.Left,
+                  Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        TMP_Text tmp = go.GetComponent<TMP_Text>();
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.color = new Color(1f, 0.85f, 0.4f, 1f);
+        LayoutElement le = go.AddComponent<LayoutElement>();
+        le.preferredHeight = 32f;
+    }
+
+    /// <summary> 치트 패널 세로 스크롤 본문에 가로로 나열되는 버튼/입력창 한 줄을 추가한다. </summary>
+    static GameObject CreateCheatButtonRow(Transform parent, float height)
+    {
+        GameObject row = new GameObject("Row");
+        row.transform.SetParent(parent, false);
+        LayoutElement rowLE = row.AddComponent<LayoutElement>();
+        rowLE.preferredHeight = height;
+        HorizontalLayoutGroup layout = row.AddComponent<HorizontalLayoutGroup>();
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = true;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.spacing = 8f;
+        return row;
     }
 
     /// <summary>

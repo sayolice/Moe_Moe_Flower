@@ -27,9 +27,17 @@ MonoBehaviour:
   goldPerSecondGrowthRate: 1.15
   passives:
   - passiveId: tulip_seed_price_discount
-    displayName: "산뜻한 절약"
-    description: "모든 꽃의 씨앗 가격 -3%"
+    displayName: "\uC0B0\uB73B\uD55C \uC808\uC57D"
+    description: "\uBAA8\uB4E0 \uAF43\uC758 \uC528\uC557 \uAC00\uACA9 -3%"
     effectType: 1
     scope: 0
     value: -0.03
     chance: 1
+  memorialEntries: []
+  gardenShape:
+  - {x: 0, y: 0}
+  - {x: 1, y: 0}
+  adjacencyEffect:
+    type: 2
+    primaryValue: 0.1
+    secondaryValue: 0.07

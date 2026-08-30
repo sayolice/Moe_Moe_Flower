@@ -39,6 +39,14 @@ public class FlowerData : ScriptableObject
     [Tooltip("텍스트는 아직 비어 있을 수 있다 — 비어 있어도 레벨업/배율 시스템은 정상 동작해야 한다.")]
     public List<MemorialData> memorialEntries = new List<MemorialData>();
 
+    [Header("정원 — 폴리오미노 모양 (회전 없음)")]
+    [Tooltip("FlowerDataEditor(Editor 폴더)가 이 필드를 5×5 클릭형 격자로 대신 그려준다 — 저장 시 " +
+             "좌상단 기준 (0,0)으로 자동 정규화된다.")]
+    public List<Vector2Int> gardenShape = new List<Vector2Int> { Vector2Int.zero };
+
+    [Header("정원 — 인접 효과 (유대 레벨에 비례해 단계적으로 강해짐 — BondData.adjacencyPowerByBondLevel, GardenManager가 판정)")]
+    public AdjacencyEffectData adjacencyEffect = new AdjacencyEffectData();
+
     // ===== 계산 함수 =====
     // [전부 BigNumber를 반환하는 이유] 레벨엔 상한이 없고 성장률은 매 레벨 곱해지는 지수 함수라,
     // 결과값(비용/생산량)은 오래 플레이할수록 결국 long/double의 한계에도 도달한다. levelUpBaseCost/
@@ -96,6 +104,22 @@ public class FlowerData : ScriptableObject
     {
         if (memorialEntries == null) return null;
         return memorialEntries.Find(m => m != null && m.unlockBondLevel == bondLevel);
+    }
+
+    /// <summary>
+    /// origin에 배치했을 때 실제로 점유하는 절대 좌표 칸 목록. gardenShape이 비어 있으면(설정 누락)
+    /// 최소 1×1은 되도록 origin 하나만 반환한다 — 모양 데이터가 없다고 배치 자체가 깨지면 안 된다.
+    /// </summary>
+    public IEnumerable<Vector2Int> GetOccupiedCells(Vector2Int origin)
+    {
+        if (gardenShape == null || gardenShape.Count == 0)
+        {
+            yield return origin;
+            yield break;
+        }
+
+        foreach (Vector2Int offset in gardenShape)
+            yield return origin + offset;
     }
 
     /// <summary>

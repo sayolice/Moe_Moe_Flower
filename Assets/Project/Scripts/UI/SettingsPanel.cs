@@ -1,3 +1,4 @@
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -27,6 +28,16 @@ public class SettingsPanel : MonoBehaviour
     public Button resetConfirmYesButton;
     public Button resetConfirmNoButton;
 
+    [Header("치트 모드 — 빌드된 게임에서도 CheatPanel을 쓸 수 있게 하되, 비밀번호(1204)를 맞혀야만 열린다")]
+    public Button cheatButton;
+    public GameObject cheatPasswordRoot; // 기본 비활성
+    public TMP_InputField cheatPasswordInput;
+    public TMP_Text cheatPasswordErrorText;
+    public Button cheatPasswordConfirmButton;
+    public Button cheatPasswordCancelButton;
+
+    private const string CheatPassword = "1204";
+
     private CanvasGroup canvasGroup;
 
     private void Awake()
@@ -48,13 +59,19 @@ public class SettingsPanel : MonoBehaviour
         if (resetConfirmYesButton != null) resetConfirmYesButton.onClick.AddListener(ConfirmResetData);
         if (resetConfirmNoButton != null) resetConfirmNoButton.onClick.AddListener(HideResetConfirm);
 
+        if (cheatButton != null) cheatButton.onClick.AddListener(ShowCheatPasswordPrompt);
+        if (cheatPasswordConfirmButton != null) cheatPasswordConfirmButton.onClick.AddListener(ConfirmCheatPassword);
+        if (cheatPasswordCancelButton != null) cheatPasswordCancelButton.onClick.AddListener(HideCheatPasswordPrompt);
+
         SetVisible(false);
         if (resetConfirmRoot != null) resetConfirmRoot.SetActive(false);
+        if (cheatPasswordRoot != null) cheatPasswordRoot.SetActive(false);
     }
 
     public void Open()
     {
         HideResetConfirm(); // 예전에 확인창을 띄운 채로 닫았다가 다시 열리는 경우를 방지
+        HideCheatPasswordPrompt();
         SetVisible(true);
     }
 
@@ -89,5 +106,36 @@ public class SettingsPanel : MonoBehaviour
 
         HideResetConfirm();
         Close();
+    }
+
+    private void ShowCheatPasswordPrompt()
+    {
+        if (cheatPasswordInput != null) cheatPasswordInput.text = "";
+        if (cheatPasswordErrorText != null) cheatPasswordErrorText.gameObject.SetActive(false);
+        if (cheatPasswordRoot != null) cheatPasswordRoot.SetActive(true);
+    }
+
+    private void HideCheatPasswordPrompt()
+    {
+        if (cheatPasswordRoot != null) cheatPasswordRoot.SetActive(false);
+    }
+
+    /// <summary>
+    /// 비밀번호(1204)를 맞혀야만 CheatPanel을 연다 — "아무나 쓰는 게 아니라"가 요청 취지라, 틀리면
+    /// 조용히 무시하지 않고 에러 문구를 보여준 뒤 입력창을 비운다(재시도 유도).
+    /// </summary>
+    private void ConfirmCheatPassword()
+    {
+        string input = cheatPasswordInput != null ? cheatPasswordInput.text : "";
+        if (input == CheatPassword)
+        {
+            HideCheatPasswordPrompt();
+            if (CheatPanel.Instance != null) CheatPanel.Instance.Open();
+        }
+        else
+        {
+            if (cheatPasswordErrorText != null) cheatPasswordErrorText.gameObject.SetActive(true);
+            if (cheatPasswordInput != null) cheatPasswordInput.text = "";
+        }
     }
 }

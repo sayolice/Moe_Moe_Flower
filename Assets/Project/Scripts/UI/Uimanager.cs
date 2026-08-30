@@ -269,7 +269,7 @@ public class UIManager : MonoBehaviour
             // 게이지 바 1개)을 그대로 재사용하되 내용만 바꾼다. 레벨업 자체는 여전히 오른쪽 꽃 탭
             // (FlowerUpgradePanel)에서만 가능 — 여기는 표시 전용.
             BondData bondData = FlowerManager.Instance.ActiveBondData;
-            BigNumber gps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel);
+            BigNumber gps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel, instance.flowerId);
             float bondMultiplier = FlowerManager.Instance.GetBondGoldMultiplier(instance.bondLevel);
 
             // 유대 배율이 걸려 있을 때만 "(×1.25)"처럼 드러낸다 — Lv.0(배율 없음)에서까지 "(×1)"을

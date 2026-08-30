@@ -99,8 +99,25 @@ public class FlowerManager : MonoBehaviour
             FlowerData data = GetFlowerData(instance.flowerId);
             if (data == null) continue;
 
-            BigNumber gps = GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel);
+            BigNumber gps = GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel, instance.flowerId);
             GameManager.Instance.AddGold(gps * dt);
+        }
+
+        // 정원 유대: 배치된 꽃은 매초 bondPerSecondInGarden만큼 유대가 쌓인다(배율 없이 그 값 그대로,
+        // 설계 원칙 0.2/0.3). ApplyOfflineProgress(오프라인)에는 이미 반영돼 있었는데 이 온라인 Update
+        // 루프에는 빠져 있었다 — 그래서 정원에 배치해 둬도 실시간으로는 유대가 안 쌓이던 버그였다.
+        // AddBond를 그대로 재사용해 while 루프 다중 레벨업/Lv.5 상한을 동일하게 적용받는다.
+        if (GardenManager.Instance != null)
+        {
+            double gardenBondRate = GardenManager.Instance.ActiveGardenData.bondPerSecondInGarden;
+            if (gardenBondRate > 0)
+            {
+                foreach (string flowerId in GardenManager.Instance.GetPlacedFlowerIds())
+                {
+                    if (ownedFlowers.TryGetValue(flowerId, out FlowerInstance placedInstance))
+                        AddBond(placedInstance, gardenBondRate * dt);
+                }
+            }
         }
 
         // 자동 애정: 화면 표시 여부와 무관하게, 보유한 모든 "미개화" 꽃에 동시에 적용된다.
@@ -183,13 +200,30 @@ public class FlowerManager : MonoBehaviour
     /// bondLevel은 호출자가 "그 꽃 인스턴스"의 현재 유대 레벨을 직접 넘긴다(FlowerData 혼자서는
     /// 알 수 없는 값이라 인자로 받는다) — 패시브 전역 배율과 달리 유대 배율은 그 꽃 하나에만
     /// 적용되므로 FlowerManager가 전역으로 조회할 수 없다.
+    ///
+    /// flowerId는 정원 배율(인접 효과 × 시듦) 조회에 쓴다 — GardenManager가 없으면(아직 씬에
+    /// 없거나 미배치) 자동으로 1(영향 없음)이 된다. "정원은 생산 게이트가 아니다" 원칙이 이
+    /// 기본값 1로 구조적으로 보장된다.
+    ///
+    /// gardenElapsedOverride는 오프라인 정산 전용이다 — 라이브 시각(DateTime.UtcNow) 대신 "그
+    /// 구간 시점"의 경과 시간을 명시해서 시듦 단계를 정확히 재현해야 하기 때문이다(온라인/UI
+    /// 프리뷰는 null로 두면 GardenManager가 알아서 지금 시각 기준으로 계산한다).
     /// </summary>
-    public BigNumber GetEffectiveGoldPerSecond(FlowerData data, int level, int bondLevel)
+    public BigNumber GetEffectiveGoldPerSecond(FlowerData data, int level, int bondLevel, string flowerId, double? gardenElapsedOverride = null)
     {
         float passiveMultiplier = PassiveManager.Instance != null
             ? PassiveManager.Instance.GetTotalMultiplier(PassiveEffectType.GoldPerSecondBonusPercent)
             : 1f;
-        return data.GetGoldPerSecond(level) * passiveMultiplier * GetBondGoldMultiplier(bondLevel);
+
+        float gardenMultiplier = 1f;
+        if (GardenManager.Instance != null)
+        {
+            gardenMultiplier = gardenElapsedOverride.HasValue
+                ? GardenManager.Instance.GetGoldMultiplierForFlower(flowerId, gardenElapsedOverride.Value)
+                : GardenManager.Instance.GetGoldMultiplierForFlower(flowerId);
+        }
+
+        return data.GetGoldPerSecond(level) * passiveMultiplier * GetBondGoldMultiplier(bondLevel) * gardenMultiplier;
     }
 
     /// <summary>
@@ -205,6 +239,23 @@ public class FlowerManager : MonoBehaviour
         if (multipliers == null || index < 0 || index >= multipliers.Count) return 1f;
 
         return multipliers[index];
+    }
+
+    /// <summary>
+    /// 유대 레벨에 대응하는 정원 인접 효과 "위력"(0~1). GardenManager.RecomputeAdjacencyCache가
+    /// 각 꽃이 내는 인접 효과의 기본 보너스에 이 값을 곱해서 실제 기여량을 정한다 — 유대 Lv.5에서만
+    /// 발동(0 또는 100%)하던 것을 유대 레벨에 비례해 단계적으로 강해지도록 바꾼 것(요청 사항).
+    /// 인덱스는 bondLevel 그대로(0=Lv.0)라 GetBondGoldMultiplier와 인덱싱 규칙이 다르다는 점에 주의 —
+    /// 그쪽은 "Lv.1부터 배열이 시작"이지만 이쪽은 "Lv.0부터 배열이 시작"이다(Lv.0에서 위력이 반드시
+    /// 0이어야 하므로 배열에 그 칸이 필요하다).
+    /// </summary>
+    public float GetAdjacencyPower(int bondLevel)
+    {
+        List<float> table = ActiveBondData.adjacencyPowerByBondLevel;
+        if (table == null || table.Count == 0) return bondLevel >= ActiveBondData.maxBondLevel ? 1f : 0f; // 밸런스 데이터 누락 시 구 동작(Lv.5부터 100%)으로 안전하게 대체
+
+        int index = Mathf.Clamp(bondLevel, 0, table.Count - 1);
+        return table[index];
     }
 
     /// <summary>
@@ -228,7 +279,65 @@ public class FlowerManager : MonoBehaviour
             FlowerData data = GetFlowerData(instance.flowerId);
             if (data == null) continue;
 
-            total += GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel);
+            total += GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel, instance.flowerId);
+        }
+        return total;
+    }
+
+    /// <summary>
+    /// 작업 3(정원 전체 요약 "인접 효과 +N%") 전용. GetTotalGoldPerSecond와 완전히 같은 합산이되
+    /// gardenMultiplier만 빼서 계산한다 — 그래서 (GetTotalGoldPerSecond() / 이 값 - 1)이 정확히
+    /// "지금 배치가 정원 배율(인접 효과×시듦)로 인해 기여하는 몫"이 된다. 새 계산식을 만드는 게
+    /// 아니라 기존 식에서 인수 하나를 1로 고정한 것뿐이라, 두 값이 어긋날 여지가 없다.
+    /// </summary>
+    public BigNumber GetTotalGoldPerSecondWithoutGardenAdjacency()
+    {
+        BigNumber total = BigNumber.Zero;
+        float passiveMultiplier = PassiveManager.Instance != null
+            ? PassiveManager.Instance.GetTotalMultiplier(PassiveEffectType.GoldPerSecondBonusPercent)
+            : 1f;
+
+        foreach (var kvp in ownedFlowers)
+        {
+            FlowerInstance instance = kvp.Value;
+            if (!instance.isBloomed) continue;
+
+            FlowerData data = GetFlowerData(instance.flowerId);
+            if (data == null) continue;
+
+            total += data.GetGoldPerSecond(instance.currentLevel) * passiveMultiplier * GetBondGoldMultiplier(instance.bondLevel);
+        }
+        return total;
+    }
+
+    /// <summary>
+    /// 작업 3(정원 요약 "인접 효과 +N% → 시듦 적용 후 +M%") 전용 — 시듦을 적용하기 "전"의 총 G/s.
+    /// GetTotalGoldPerSecond와 완전히 같은 합산이되 gardenMultiplier 대신 GardenManager의
+    /// GetRawAdjacencyMultiplierForFlower(시듦 미반영, 1+fraction)를 쓴다. 이 값과
+    /// GetTotalGoldPerSecondWithoutGardenAdjacency()를 비교하면 "인접 효과 자체가 얼마나 센지"가,
+    /// GetTotalGoldPerSecond()와 비교하면 "시듦 적용 후 실제로 얼마나 남았는지"가 나온다.
+    /// </summary>
+    public BigNumber GetTotalGoldPerSecondWithRawAdjacency()
+    {
+        BigNumber total = BigNumber.Zero;
+        float passiveMultiplier = PassiveManager.Instance != null
+            ? PassiveManager.Instance.GetTotalMultiplier(PassiveEffectType.GoldPerSecondBonusPercent)
+            : 1f;
+
+        foreach (var kvp in ownedFlowers)
+        {
+            FlowerInstance instance = kvp.Value;
+            if (!instance.isBloomed) continue;
+
+            FlowerData data = GetFlowerData(instance.flowerId);
+            if (data == null) continue;
+
+            float rawGardenMultiplier = GardenManager.Instance != null
+                ? GardenManager.Instance.GetRawAdjacencyMultiplierForFlower(instance.flowerId)
+                : 1f;
+
+            total += data.GetGoldPerSecond(instance.currentLevel) * passiveMultiplier
+                * GetBondGoldMultiplier(instance.bondLevel) * rawGardenMultiplier;
         }
         return total;
     }
@@ -309,16 +418,15 @@ public class FlowerManager : MonoBehaviour
     public FlowerInstance GetCurrentInstance() => GetInstance(currentDisplayedFlowerId);
 
     /// <summary>
-    /// 오프라인 경과 시간(elapsedSeconds)만큼 골드/애정을 정산한다 (세이브 불러오기 전용).
-    /// 정책: 온라인의 100%, 상한 없음. 터치 애정은 포함하지 않는다(클릭이 없으므로).
+    /// 오프라인 경과 시간(elapsedSeconds)만큼 골드/애정/정원 유대를 정산한다 (세이브 불러오기 전용).
+    /// 정책: 온라인의 100%, 상한 없음. 터치 애정/터치 골드는 포함하지 않는다(클릭이 없으므로).
     ///
-    /// [구간별(이벤트 기반) 시뮬레이션] 오프라인 구간 전체를 한 번에 계산하지 않고, "다음 개화가
-    /// 언제 일어나는가"를 기준으로 여러 구간으로 쪼개서 순서대로 처리한다. 이유: 자동 애정 보너스
-    /// (연꽃류 AutoAffectionBonusFlat)나 전역 G/s 보너스(해바라기 GoldPerSecondBonusPercent)는
-    /// 그 패시브를 가진 꽃이 "개화한 뒤"에만 켜지는데, 오프라인 구간 도중에 바로 그 꽃이 개화한다면
-    /// 한 번에 계산하는 방식으로는 그 보너스가 남은 시간에 전혀 반영되지 않는다(정산 시작 시점의
-    /// 배율로 구간 전체를 계산해버리므로). 구간 경계마다 배율을 다시 읽으면, 개화 직후부터 바로
-    /// 다음 구간에 새 보너스가 반영된다 — 온라인에서 매 프레임 다시 계산하는 것과 원리가 같다.
+    /// [구간별(이벤트 기반) 시뮬레이션] 오프라인 구간 전체를 한 번에 계산하지 않고, 다음 중 가장
+    /// 먼저 오는 시점까지를 한 구간으로 쪼갠다: (1) 다음 개화, (2) 다음 시듦 단계 경계(12h/24h/48h).
+    /// 이유는 둘 다 같다 — G/s에 영향을 주는 무언가가 "그 순간부터" 바뀌는데, 한 번에 계산하면
+    /// 정산 시작 시점의 배율이 구간 전체에 잘못 적용된다(정원 명세 5.2가 시듦에 대해 이 문제를
+    /// 명시적으로 지적한다). 구간 경계마다 다시 계산하면, 그 순간부터 바로 새 배율이 반영된다 —
+    /// 온라인에서 매 프레임 다시 계산하는 것과 원리가 같다.
     /// </summary>
     public OfflineSettlementResult ApplyOfflineProgress(double elapsedSeconds)
     {
@@ -328,15 +436,20 @@ public class FlowerManager : MonoBehaviour
         BigNumber totalGold = BigNumber.Zero;
         double remainingTime = elapsedSeconds;
 
-        // 반복 횟수는 이론상 "이번 정산 중 개화하는 꽃의 수"만큼만 필요하므로, 보유 꽃 수보다
+        // 정원이 아직 씬에 없으면(구현 전/미배치) 전부 건너뛴다 — "정원을 안 쓰면 영향 0" 원칙.
+        bool hasGarden = GardenManager.Instance != null;
+        double gardenElapsedSinceTended = hasGarden ? GardenManager.Instance.GetElapsedSecondsSinceTended() : 0;
+        List<string> placedFlowerIds = hasGarden ? GardenManager.Instance.GetPlacedFlowerIds().ToList() : new List<string>();
+        double gardenBondRate = hasGarden ? GardenManager.Instance.ActiveGardenData.bondPerSecondInGarden : 0;
+
+        // 반복 횟수는 이론상 "이번 정산 중 개화하는 꽃의 수 + 지나가는 시듦 단계 수"만큼만 필요하므로,
         // 넉넉한 상한을 둬서 부동소수점 오차로 인한 무한루프 가능성을 원천 차단한다.
         const int SAFETY_CAP = 10000;
         for (int iteration = 0; remainingTime > 0 && iteration < SAFETY_CAP; iteration++)
         {
             double autoAffectionRate = GetEffectiveAutoAffectionRate();
 
-            // 이번 구간의 길이 = 지금 배율 기준으로 "다음에 가장 먼저 개화하는 꽃까지 걸리는 시간"
-            // (아무도 그 전에 개화하지 않으면 남은 시간 전체가 한 구간).
+            // 이번 구간의 길이 = 남은 시간, 다음 개화까지의 시간, 다음 시듦 단계 경계까지의 시간 중 최솟값.
             double segmentDuration = remainingTime;
             if (autoAffectionRate > 0f)
             {
@@ -352,6 +465,13 @@ public class FlowerManager : MonoBehaviour
                 }
             }
 
+            if (hasGarden && placedFlowerIds.Count > 0)
+            {
+                double timeToWiltBoundary = GardenManager.Instance.ActiveGardenData
+                    .GetTimeToNextWiltStageBoundary(gardenElapsedSinceTended);
+                if (timeToWiltBoundary < segmentDuration) segmentDuration = timeToWiltBoundary;
+            }
+
             bool anyGrowingFlower = false;
 
             foreach (FlowerInstance instance in ownedFlowers.Values)
@@ -361,8 +481,12 @@ public class FlowerManager : MonoBehaviour
 
                 if (instance.isBloomed)
                 {
-                    // 이 구간 동안 현재 레벨 G/s로 정산 (전역 G/s 보너스는 구간 시작 시점 최신값 반영)
-                    totalGold += GetEffectiveGoldPerSecond(data, instance.currentLevel, instance.bondLevel) * segmentDuration;
+                    // 이 구간 동안 현재 레벨 G/s로 정산 (전역 G/s 보너스·정원 배율 모두 구간 시작
+                    // 시점 최신값 반영 — gardenElapsedSinceTended를 명시적으로 넘겨서, "지금"이
+                    // 아니라 "그 구간 시점"의 시듦 단계로 정확히 계산한다).
+                    totalGold += GetEffectiveGoldPerSecond(
+                        data, instance.currentLevel, instance.bondLevel, instance.flowerId, gardenElapsedSinceTended)
+                        * segmentDuration;
                     continue;
                 }
 
@@ -377,11 +501,32 @@ public class FlowerManager : MonoBehaviour
                     result.newlyBloomedFlowerIds.Add(instance.flowerId);
             }
 
-            remainingTime -= segmentDuration;
+            // 정원 유대 정산 — 배치된 꽃만, 기존 AddBond 경로 재사용(while 루프로 여러 레벨 처리 유지).
+            // 절대 배율을 곱하지 않는다(설계 원칙 0.2/0.3) — bondPerSecondInGarden 그대로.
+            if (hasGarden)
+            {
+                foreach (string flowerId in placedFlowerIds)
+                {
+                    FlowerInstance placedInstance = GetInstance(flowerId);
+                    if (placedInstance == null) continue;
 
-            // 더 진행할 이유가 없으면(자동 애정이 꺼져 있거나 성장 중인 꽃이 아예 없음) 여기서 종료 —
-            // 그렇지 않으면 다음 반복에서 segmentDuration이 항상 remainingTime과 같아져 제자리걸음이 된다.
-            if (autoAffectionRate <= 0f || !anyGrowingFlower) break;
+                    int levelBefore = placedInstance.bondLevel;
+                    AddBond(placedInstance, gardenBondRate * segmentDuration);
+                    if (placedInstance.bondLevel != levelBefore)
+                        result.gardenBondLeveledFlowerIds.Add(flowerId);
+                }
+                result.gardenBondEarned += gardenBondRate * segmentDuration * placedFlowerIds.Count;
+            }
+
+            remainingTime -= segmentDuration;
+            gardenElapsedSinceTended += segmentDuration;
+
+            // 더 진행할 이유가 없으면(자동 애정도 꺼져 있고, 성장 중인 꽃도 없고, 정원에 배치된 것도
+            // 없어서 시듦 경계도 의미가 없음) 여기서 종료 — 그렇지 않으면 매번 segmentDuration이
+            // remainingTime과 같아져 다음 반복에서 자연히 끝나므로 무한 반복은 아니지만, 굳이 도는
+            // 것을 막는 조기 종료다.
+            if (autoAffectionRate <= 0f && !anyGrowingFlower && (!hasGarden || placedFlowerIds.Count == 0))
+                break;
         }
 
         // 여기서 별도의 "오프라인 배율"을 다시 곱하지 않는다 — 오프라인은 온라인의 100%로 확정됐고,
@@ -545,6 +690,25 @@ public class FlowerManager : MonoBehaviour
     }
 
     /// <summary>
+    /// 정원의 시듦 복구 터치(GardenManager.TouchTile)처럼, "이 터치는 유대를 쌓지 않지만 골드는
+    /// 일반 터치와 동일하게 받아야 하는" 외부 이벤트가 재사용하는 공개 경로. ClickCurrentFlower의
+    /// 골드 지급 부분과 같은 계산을 쓰되, 절대 AddBond를 호출하지 않는다는 것이 핵심이다
+    /// (시듦 복구는 청소 행위이지 관계 형성이 아니라는 설계 원칙 3.4).
+    /// </summary>
+    public void GrantExternalTouchGold()
+    {
+        BigNumber touchGold = PlayerStatManager.Instance != null
+            ? PlayerStatManager.Instance.GetCurrentValue(PlayerStatType.TouchGold)
+            : BigNumber.Zero;
+
+        if (PassiveManager.Instance != null)
+            touchGold += PassiveManager.Instance.RollAnyFlowerTouchBonus(PassiveEffectType.TouchGoldExtraChance, touchGold);
+
+        GameManager.Instance.AddGold(touchGold);
+        OnTouchGoldGranted?.Invoke(touchGold);
+    }
+
+    /// <summary>
     /// amount가 double인 것이 중요하다 — 자동 애정은 매 프레임 `rate * deltaTime`이라는 아주 작은
     /// 값을 더하는데, 여기서 float으로 좁히면 currentAffection이 커진 뒤(수백만 이상)에는 그 증가분이
     /// 통째로 반올림되어 사라진다(FlowerInstance.currentAffection 주석의 정밀도 설명 참고).
@@ -680,4 +844,101 @@ public class FlowerManager : MonoBehaviour
         currentDisplayedFlowerId = id;
         OnDisplayedFlowerChanged?.Invoke(id);
     }
+
+    // ===================================================================
+    // 개발자 치트 — 핵심 3개(개화/레벨/유대 레벨)는 CheatPanel(런타임, 설정 화면에서 비밀번호로
+    // 잠금)에서도 써야 해서 항상 컴파일된다. 상태만 조작하고, 정상 경로(AddAffection)를 우회하지
+    // 않는다 — 특히 개화는 반드시 AddAffection을 태워서 패시브 활성화 등 부수 처리가 누락되지
+    // 않게 한다. 이 셋 외의 "전체 일괄" 계열은 여전히 에디터 전용(CheatMenuWindow)이다.
+    // ===================================================================
+
+    /// <summary>
+    /// 치트 — 지정한 보유·미개화 꽃의 애정을 요구치까지 채워 정상 개화 경로(AddAffection)를 그대로
+    /// 태운다. isBloomed를 직접 대입하지 않는 이유는 클래스 상단 요청 지시서 참고 — 패시브 활성화
+    /// 등 부수 처리가 누락되면 안 되기 때문이다.
+    /// </summary>
+    public bool Cheat_ForceBloom(string flowerId)
+    {
+        FlowerInstance instance = GetInstance(flowerId);
+        FlowerData data = GetFlowerData(flowerId);
+        if (instance == null || data == null || instance.isBloomed) return false;
+
+        double remaining = Math.Max(1, data.requiredAffection - instance.currentAffection);
+        AddAffection(instance, data, remaining);
+        return instance.isBloomed;
+    }
+
+    /// <summary> 치트 — 개화한 꽃의 레벨을 직접 설정한다(골드 소모 없음). 미개화 꽃은 무시. </summary>
+    public void Cheat_SetFlowerLevel(string flowerId, int level)
+    {
+        FlowerInstance instance = GetInstance(flowerId);
+        if (instance == null || !instance.isBloomed) return;
+
+        instance.currentLevel = Math.Max(1, level);
+        if (flowerId == currentDisplayedFlowerId) OnDisplayedFlowerChanged?.Invoke(flowerId);
+    }
+
+    /// <summary>
+    /// 치트 — 유대 레벨을 직접 설정한다. bond(현재 레벨 구간 누적치)를 0으로 초기화해 다음 레벨업
+    /// 판정이 어긋나지 않게 한다(요청 지시서 명시 사항). 메모리얼 해금은 bondLevel만으로 판정되므로
+    /// (FlowerManager.HasUnreadMemorial 참고) 별도 플래그 갱신이 필요 없다. OnBondLevelUp을 그대로
+    /// 발생시켜야 GardenManager의 인접 효과 캐시도 함께 갱신된다(인접 효과 검증이 이 치트의 목적이므로
+    /// 이 이벤트를 생략하면 안 된다).
+    /// </summary>
+    public void Cheat_SetFlowerBondLevel(string flowerId, int bondLevel)
+    {
+        FlowerInstance instance = GetInstance(flowerId);
+        if (instance == null) return;
+
+        int clamped = Mathf.Clamp(bondLevel, 0, ActiveBondData.maxBondLevel);
+        instance.bondLevel = clamped;
+        instance.bond = 0;
+        OnBondLevelUp?.Invoke(flowerId, clamped);
+        if (flowerId == currentDisplayedFlowerId) OnDisplayedFlowerChanged?.Invoke(flowerId);
+    }
+
+#if UNITY_EDITOR
+    // ===================================================================
+    // 개발자 치트 (에디터 전용, 나머지) — Tools > 꽃소녀 치트(CheatMenuWindow)에서만 호출한다.
+    // 전부 #if UNITY_EDITOR로 감싸 릴리스 빌드에는 포함되지 않는다.
+    // ===================================================================
+
+    /// <summary> 치트 — 씨앗 비용을 무시하고 미보유 꽃을 전부 보유 상태로 만든다. </summary>
+    public void Cheat_OwnAllFlowers()
+    {
+        foreach (FlowerData data in allFlowers)
+        {
+            if (data == null || ownedFlowers.ContainsKey(data.flowerId)) continue;
+            ownedFlowers[data.flowerId] = new FlowerInstance(data.flowerId);
+        }
+        OnOwnedFlowersChanged?.Invoke();
+
+        if (string.IsNullOrEmpty(currentDisplayedFlowerId))
+        {
+            List<string> owned = GetOwnedIdsInDexOrder();
+            if (owned.Count > 0) SetDisplayedFlower(owned[0]);
+        }
+    }
+
+    /// <summary> 치트 — 보유한 모든 미개화 꽃을 Cheat_ForceBloom으로 개화시킨다. </summary>
+    public void Cheat_ForceBloomAllOwned()
+    {
+        foreach (string id in GetOwnedIdsInDexOrder().ToList())
+            Cheat_ForceBloom(id);
+    }
+
+    /// <summary> 치트 — 보유한 모든 개화 꽃의 레벨을 일괄 설정한다. </summary>
+    public void Cheat_SetAllLevels(int level)
+    {
+        foreach (string id in GetOwnedIdsInDexOrder())
+            Cheat_SetFlowerLevel(id, level);
+    }
+
+    /// <summary> 치트 — 보유한 모든 꽃의 유대 레벨을 일괄 설정한다. </summary>
+    public void Cheat_SetAllBondLevels(int bondLevel)
+    {
+        foreach (string id in GetOwnedIdsInDexOrder())
+            Cheat_SetFlowerBondLevel(id, bondLevel);
+    }
+#endif
 }

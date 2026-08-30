@@ -41,4 +41,11 @@ public class BondData : ScriptableObject
     [Tooltip("이 레벨에서 유대 성장이 멈춘다(설계 원칙 1.3) — 무한 성장 금지, 수집 게임에서 '전부를 " +
              "Lv.5로'가 유일한 최적 전략이 되도록 하는 핵심 장치.")]
     public int maxBondLevel = 5;
+
+    [Header("정원 인접 효과 위력 — 유대 레벨에 비례해 단계적으로 강해진다(0 또는 100%가 아님)")]
+    [Tooltip("인덱스 = bondLevel(0~maxBondLevel). 0번째(Lv.0)는 항상 0이어야 하고(인접 효과 완전 " +
+             "비활성), 마지막 원소(보통 Lv.5)는 1.0(풀파워)이어야 한다. GardenManager가 각 꽃의 인접 " +
+             "효과 '기본 보너스'에 이 값을 곱해서 실제 기여량을 정한다 — 절대 전체 배율(1+보너스)에 " +
+             "곱하지 않는다(전체에 곱하면 1 미만이 되어 기본 G/s까지 깎이게 된다).")]
+    public List<float> adjacencyPowerByBondLevel = new List<float> { 0f, 0.25f, 0.45f, 0.65f, 0.82f, 1f };
 }

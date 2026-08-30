@@ -140,7 +140,7 @@ public class FlowerUpgradeItem : MonoBehaviour
 
     private void ApplyPreview(FlowerData data, int currentLevel, int bondLevel, int levelsToApply, LevelUpAmount mode)
     {
-        BigNumber currentGps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel, bondLevel);
+        BigNumber currentGps = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel, bondLevel, flowerId);
 
         // FormatPrecise인 이유: 저레벨 G/s(예: 민들레 Lv.1 = 1)나 레벨업 1회당 증가분은 1 미만인 게
         // 정상인데, Format()으로 찍으면 정수로 뭉개져서 "0"이 되어 레벨업해도 안 오르는 것처럼 보였다.
@@ -159,7 +159,7 @@ public class FlowerUpgradeItem : MonoBehaviour
         }
 
         BigNumber totalCost = FlowerManager.Instance.GetEffectiveLevelUpCostForLevels(data, currentLevel, levelsToApply);
-        BigNumber gpsAfter = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel + levelsToApply, bondLevel);
+        BigNumber gpsAfter = FlowerManager.Instance.GetEffectiveGoldPerSecond(data, currentLevel + levelsToApply, bondLevel, flowerId);
         BigNumber gpsDelta = gpsAfter - currentGps;
 
         string suffix = mode == LevelUpAmount.Max ? $" / Lv.{currentLevel + levelsToApply}" : "";

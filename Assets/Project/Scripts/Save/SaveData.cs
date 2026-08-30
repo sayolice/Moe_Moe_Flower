@@ -63,6 +63,65 @@ public class PlayerStatSaveEntry
     public int currentLevel;
 }
 
+/// <summary> 정원에 배치된 꽃 1개체의 좌표. GardenManager.presets에도 그대로 재사용된다. </summary>
+[Serializable]
+public class GardenFlowerPlacement
+{
+    public string flowerId;
+    public int x;
+    public int y;
+}
+
+/// <summary> 정원 타일(=배치된 꽃 1개체) 하나의 시듦 복구 터치 누적 횟수. </summary>
+[Serializable]
+public class GardenTileTouchEntry
+{
+    public string flowerId;
+    public int touchCount;
+}
+
+/// <summary> 꾸미기 아이템 1개의 배치 좌표. </summary>
+[Serializable]
+public class GardenDecorationPlacement
+{
+    public string decorationId;
+    public int x;
+    public int y;
+}
+
+/// <summary>
+/// 배치 프리셋 1개(작업 6.4 — UI는 이후 작업, 데이터 구조만 지금 확정한다).
+/// 이름과 배치 좌표만 담는 단순한 스냅샷이라 GardenManager.presets(런타임)와
+/// SaveData.garden.presets(저장) 양쪽에서 같은 타입을 그대로 쓴다.
+/// </summary>
+[Serializable]
+public class GardenPreset
+{
+    public string presetName;
+    public List<GardenFlowerPlacement> placements = new List<GardenFlowerPlacement>();
+}
+
+/// <summary>
+/// 정원 전체의 저장용 스냅샷. 필드가 전부 초기화식을 가지므로, 정원 필드가 아예 없는 예전 세이브를
+/// JsonUtility로 읽어도 이 클래스는 "빈 정원"(sizeIndex=0, 배치 없음, lastTendedTimeTicksUtc=0)으로
+/// 자연스럽게 채워진다 — 별도의 존재 여부 체크나 마이그레이션 코드가 필요 없다(FlowerSaveEntry의
+/// 유대 필드가 하위 호환을 얻은 것과 정확히 같은 원리).
+/// </summary>
+[Serializable]
+public class GardenSaveData
+{
+    public int sizeIndex;
+    public long lastTendedTimeTicksUtc;
+
+    public List<GardenFlowerPlacement> flowerPlacements = new List<GardenFlowerPlacement>();
+    public List<GardenTileTouchEntry> tileTouches = new List<GardenTileTouchEntry>();
+
+    public List<string> ownedDecorationIds = new List<string>();
+    public List<GardenDecorationPlacement> decorationPlacements = new List<GardenDecorationPlacement>();
+
+    public List<GardenPreset> presets = new List<GardenPreset>();
+}
+
 /// <summary>
 /// 세이브 파일 전체 구조. JsonUtility로 그대로 직렬화한다 (Dictionary 미지원이라 List만 사용).
 /// </summary>
@@ -85,6 +144,8 @@ public class SaveData
 
     public List<FlowerSaveEntry> flowers = new List<FlowerSaveEntry>();
     public List<PlayerStatSaveEntry> playerStats = new List<PlayerStatSaveEntry>();
+
+    public GardenSaveData garden = new GardenSaveData();
 
     /// <summary> 오프라인 수익 계산 기준 시각 (UTC, DateTime.Ticks). </summary>
     public long lastSaveTimeTicksUtc;

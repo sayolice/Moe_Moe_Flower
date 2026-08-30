@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -15,13 +16,15 @@ public class MemorialEntryItem : MonoBehaviour
 
     private int bondLevel;
     private string body;
+    private List<string> lines;
     private MemorialViewPanel panel;
 
-    public void Setup(MemorialViewPanel owner, int level, string title, string bodyText, bool unlocked, bool unread)
+    public void Setup(MemorialViewPanel owner, int level, string title, string bodyText, List<string> scriptLines, bool unlocked, bool unread)
     {
         panel = owner;
         bondLevel = level;
         body = bodyText;
+        lines = scriptLines;
 
         if (titleText != null)
             titleText.text = unlocked
@@ -36,7 +39,7 @@ public class MemorialEntryItem : MonoBehaviour
             selectButton.interactable = unlocked;
             selectButton.onClick.RemoveAllListeners();
             if (unlocked)
-                selectButton.onClick.AddListener(() => panel.OpenEntryDetail(bondLevel, title, body));
+                selectButton.onClick.AddListener(() => panel.OpenEntryDetail(bondLevel, title, body, lines));
         }
     }
 }

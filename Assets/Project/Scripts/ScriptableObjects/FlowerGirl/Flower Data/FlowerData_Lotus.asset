@@ -35,3 +35,13 @@ MonoBehaviour:
     value: 1
     chance: 0.06
   memorialEntries: []
+  gardenShape:
+  - {x: 1, y: 0}
+  - {x: 0, y: 1}
+  - {x: 1, y: 1}
+  - {x: 2, y: 1}
+  - {x: 1, y: 2}
+  adjacencyEffect:
+    type: 6
+    primaryValue: 0.15
+    secondaryValue: 0

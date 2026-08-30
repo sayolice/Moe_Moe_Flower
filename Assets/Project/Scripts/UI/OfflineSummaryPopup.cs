@@ -26,6 +26,9 @@ public class OfflineSummaryPopup : MonoBehaviour
     public TMP_Text goldEarnedText;
     public TMP_Text bloomedFlowersText;
 
+    [Tooltip("정원에서 얻은 유대/시듦 상태 요약. 정원을 안 쓰면(배치가 없으면) 빈 문자열로 남아 사실상 안 보인다.")]
+    public TMP_Text gardenSummaryText;
+
     [Header("개화 강조 섹션 (개화한 꽃이 있을 때만 활성화)")]
     public GameObject bloomedFlowersSection;
 
@@ -78,7 +81,44 @@ public class OfflineSummaryPopup : MonoBehaviour
         if (hasBloom && bloomedFlowersText != null)
             bloomedFlowersText.text = BuildBloomedFlowerText(result.newlyBloomedFlowerIds);
 
+        if (gardenSummaryText != null)
+            gardenSummaryText.text = BuildGardenSummaryText(result);
+
         SetVisible(true);
+    }
+
+    /// <summary>
+    /// 정원에서 얻은 유대량 + 오프라인 중 유대 레벨이 오른 꽃 + 현재 시듦 상태를 요약한다(요청
+    /// 명세 5.3). 정원을 아예 안 쓰는 플레이어(GardenManager가 없거나 배치가 0)에게는 빈 문자열을
+    /// 반환해서, 정원과 무관한 팝업 모양이 예전과 똑같이 보이게 한다.
+    /// </summary>
+    private string BuildGardenSummaryText(OfflineSettlementResult result)
+    {
+        if (GardenManager.Instance == null || GardenManager.Instance.PlacedFlowerCount == 0) return "";
+
+        var lines = new List<string>();
+
+        if (result.gardenBondEarned > 0)
+            lines.Add($"정원에서 유대 {NumberFormatUtil.Format(result.gardenBondEarned)} 획득");
+
+        if (result.gardenBondLeveledFlowerIds.Count > 0)
+        {
+            var uniqueNames = new List<string>();
+            foreach (string id in result.gardenBondLeveledFlowerIds)
+            {
+                FlowerData data = FlowerManager.Instance != null ? FlowerManager.Instance.GetFlowerData(id) : null;
+                string name = data != null ? data.displayName : id;
+                if (!uniqueNames.Contains(name)) uniqueNames.Add(name);
+            }
+            lines.Add($"정원에서 유대 레벨업: {string.Join(", ", uniqueNames)}");
+        }
+
+        string wiltLabel = GardenManager.Instance.GetCurrentWiltStageLabel();
+        float wiltMultiplier = GardenManager.Instance.GetCurrentGlobalWiltMultiplier();
+        if (wiltMultiplier < 1f)
+            lines.Add($"정원 상태: {wiltLabel} (인접 효과 {(wiltMultiplier * 100f):0}%) — 타일을 터치해서 손질해 주세요.");
+
+        return string.Join("\n", lines);
     }
 
     /// <summary>
