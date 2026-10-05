@@ -123,6 +123,9 @@ public class FlowerDexPanel : MonoBehaviour
     private FlowerData currentDetailData;
     private FlowerInstance currentDetailInstance; // 미보유면 null
 
+    public bool IsOpen => canvasGroup != null && canvasGroup.alpha > 0f;
+    public bool IsDetailOpen => detailRoot != null && detailRoot.activeSelf;
+
     private const float ZoomStepMultiplier = 1.25f;
     private const float MinZoomFactor = 0.02f;
     private const float MaxZoomFactor = 20f;
@@ -258,6 +261,17 @@ public class FlowerDexPanel : MonoBehaviour
     public void Close()
     {
         SetVisible(false);
+    }
+
+    public RectTransform GetFlowerItemRect(string flowerId)
+    {
+        foreach (FlowerDexItem item in items)
+        {
+            if (item != null && item.FlowerId == flowerId && item.selectButton != null)
+                return item.selectButton.GetComponent<RectTransform>();
+        }
+
+        return null;
     }
 
     private void SetVisible(bool visible)

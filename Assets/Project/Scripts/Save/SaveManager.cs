@@ -25,11 +25,24 @@ public class SaveManager : MonoBehaviour
 
     /// <summary> 불러오기 시 오프라인 정산이 끝나면 발생. UI(OfflineSummaryPopup)가 구독. </summary>
     public event Action<OfflineSettlementResult> OnOfflineSettlementApplied;
+    private OfflineSettlementResult pendingOfflineSettlementResult;
+
+    public OfflineSettlementResult TakePendingOfflineSettlementResult()
+    {
+        OfflineSettlementResult result = pendingOfflineSettlementResult;
+        pendingOfflineSettlementResult = null;
+        return result;
+    }
 
     private const string SaveFileName = "savedata.json";
     private string SavePath => Path.Combine(Application.persistentDataPath, SaveFileName);
 
     private float autoSaveTimer;
+    private bool isApplicationPaused;
+    private long backgroundStartedAtTicksUtc;
+    private bool tutorialCompleted;
+
+    public bool IsTutorialCompleted => tutorialCompleted;
 
     /// <summary> Load() 진행 중(오프라인 정산 포함)에는 true — 아래 이벤트 기반 저장이 이 창에서 스스로
     /// 다시 저장을 트리거하는 것을 막는다(불러오는 중간 상태를 저장해버리는 것을 방지). </summary>
@@ -53,6 +66,9 @@ public class SaveManager : MonoBehaviour
         // FlowerManager.Start()(튜토리얼 자동 지급)와의 실행 순서는 상관없다 —
         // 저장 파일이 있으면 LoadOwnedFlowers가 목록을 통째로 덮어쓰고,
         // 없으면 FlowerManager 쪽 최초 지급 로직이 정상 진행된다.
+        if (!File.Exists(SavePath))
+            tutorialCompleted = false;
+
         Load();
 
         // 구매/개화처럼 "잃으면 아까운" 중요한 순간에는 30초를 기다리지 않고 즉시 저장한다.
@@ -63,6 +79,9 @@ public class SaveManager : MonoBehaviour
             FlowerManager.Instance.OnFlowerBloomed += HandleFlowerBloomed;
             FlowerManager.Instance.OnOwnedFlowersChanged += HandleOwnedFlowersChanged;
         }
+
+        if (!tutorialCompleted)
+            TutorialManager.EnsureInstance()?.StartFirstRunTutorial();
     }
 
     private void OnDestroy()
@@ -94,14 +113,33 @@ public class SaveManager : MonoBehaviour
 
     private void OnApplicationPause(bool pauseStatus)
     {
-        if (pauseStatus) Save(); // 모바일: 백그라운드 전환 시 저장
+        if (pauseStatus)
+        {
+            if (isApplicationPaused) return;
+            isApplicationPaused = true;
+            backgroundStartedAtTicksUtc = DateTime.UtcNow.Ticks;
+            Save();
+            return;
+        }
+
+        if (!isApplicationPaused) return;
+
+        double elapsedSeconds = ComputeElapsedSecondsSinceLastSave(backgroundStartedAtTicksUtc);
+        isApplicationPaused = false;
+        if (elapsedSeconds <= 0) return;
+
+        OfflineSettlementResult result = FlowerManager.Instance != null
+            ? FlowerManager.Instance.ApplyOfflineProgress(elapsedSeconds)
+            : new OfflineSettlementResult { elapsedSeconds = elapsedSeconds };
+        PublishOfflineSettlement(result);
+        Save();
     }
 
     private void OnApplicationFocus(bool hasFocus)
     {
         // PC: 창 포커스를 잃을 때(다른 창 클릭 등)도 저장 시각을 갱신해야
         // "오프라인 정산"이 실제 방치 시작 시점부터 정확히 계산된다.
-        if (!hasFocus) Save();
+        if (!hasFocus && !isApplicationPaused) Save();
     }
 
     private void OnApplicationQuit()
@@ -116,7 +154,8 @@ public class SaveManager : MonoBehaviour
         SaveData data = new SaveData
         {
             currentDisplayedFlowerId = FlowerManager.Instance.CurrentDisplayedFlowerId,
-            lastSaveTimeTicksUtc = DateTime.UtcNow.Ticks
+            lastSaveTimeTicksUtc = DateTime.UtcNow.Ticks,
+            tutorialCompleted = tutorialCompleted
         };
         WriteGoldToSaveData(data, GameManager.Instance.totalGold);
 
@@ -158,6 +197,9 @@ public class SaveManager : MonoBehaviour
 
         if (data == null) return;
 
+        NormalizeSaveData(data);
+        MigrateSaveDataIfNeeded(data);
+
         isLoading = true;
         try
         {
@@ -181,12 +223,70 @@ public class SaveManager : MonoBehaviour
             OfflineSettlementResult result = FlowerManager.Instance != null
                 ? FlowerManager.Instance.ApplyOfflineProgress(elapsedSeconds)
                 : new OfflineSettlementResult { elapsedSeconds = elapsedSeconds };
-
-            OnOfflineSettlementApplied?.Invoke(result);
+            tutorialCompleted = data.tutorialCompleted;
+            Save();
+            PublishOfflineSettlement(result);
         }
         finally
         {
             isLoading = false;
+        }
+    }
+
+    public void MarkTutorialCompleted()
+    {
+        if (tutorialCompleted) return;
+        tutorialCompleted = true;
+        Save();
+    }
+
+    private void PublishOfflineSettlement(OfflineSettlementResult result)
+    {
+        pendingOfflineSettlementResult = result;
+        OnOfflineSettlementApplied?.Invoke(result);
+    }
+
+    private void NormalizeSaveData(SaveData data)
+    {
+        data.flowers = (data.flowers ?? new List<FlowerSaveEntry>())
+            .Where(f => f != null && !string.IsNullOrWhiteSpace(f.flowerId))
+            .GroupBy(f => f.flowerId)
+            .Select(group => group.Last())
+            .ToList();
+
+        foreach (FlowerSaveEntry flower in data.flowers)
+        {
+            if (double.IsNaN(flower.currentAffection) || double.IsInfinity(flower.currentAffection) || flower.currentAffection < 0)
+                flower.currentAffection = 0;
+            if (double.IsNaN(flower.bond) || double.IsInfinity(flower.bond) || flower.bond < 0)
+                flower.bond = 0;
+            flower.currentLevel = Math.Max(flower.isBloomed ? 1 : 0, flower.currentLevel);
+            flower.bondLevel = Math.Max(0, flower.bondLevel);
+            flower.readMemorialBondLevels = (flower.readMemorialBondLevels ?? new List<int>())
+                .Where(level => level >= 0)
+                .Distinct()
+                .ToList();
+        }
+
+        data.playerStats = (data.playerStats ?? new List<PlayerStatSaveEntry>())
+            .Where(entry => entry != null && Enum.IsDefined(typeof(PlayerStatType), entry.type))
+            .GroupBy(entry => entry.type)
+            .Select(group => group.Last())
+            .ToList();
+        foreach (PlayerStatSaveEntry entry in data.playerStats)
+            entry.currentLevel = Math.Max(0, entry.currentLevel);
+
+        if (data.totalGoldExceedsDouble)
+        {
+            if (double.IsNaN(data.totalGoldMantissa) || double.IsInfinity(data.totalGoldMantissa) || data.totalGoldMantissa < 0)
+            {
+                data.totalGoldExceedsDouble = false;
+                data.totalGold = 0;
+            }
+        }
+        else if (double.IsNaN(data.totalGold) || double.IsInfinity(data.totalGold) || data.totalGold < 0)
+        {
+            data.totalGold = 0;
         }
     }
 
@@ -212,6 +312,9 @@ public class SaveManager : MonoBehaviour
         isLoading = true;
         try
         {
+            pendingOfflineSettlementResult = null;
+            tutorialCompleted = false;
+
             if (GameManager.Instance != null)
                 GameManager.Instance.SetGold(BigNumber.Zero);
 
@@ -232,6 +335,38 @@ public class SaveManager : MonoBehaviour
         }
 
         Save(); // 리셋된 "새 게임" 상태를 즉시 저장해서, 지금 껐다 켜도 초기화가 유지되게 한다
+        TutorialManager.EnsureInstance()?.StartFirstRunTutorial();
+    }
+
+    /// <summary>
+    /// 세이브 파일의 saveVersion을 점검하고 필요 시 최신 버전 구조로 순차 변환(마이그레이션)한다.
+    /// JsonUtility는 필드가 누락되어도 C# 기본값으로 채워주지만, 데이터의 의미나 단위가 바뀌는
+    /// 대규모 패치 시에는 이 메서드에서 버전별 순차 변환(v1 -> v2 -> v3)을 수행한다.
+    /// </summary>
+    private void MigrateSaveDataIfNeeded(SaveData data)
+    {
+        const int CurrentVersion = 2;
+        if (data.saveVersion >= CurrentVersion) return;
+
+        int fromVersion = data.saveVersion;
+
+        // 예: switch-case 기반의 버전별 순차 마이그레이션 파이프라인
+        switch (data.saveVersion)
+        {
+            case 0:
+                // 초기 버전에서 누락된 기본값 보정 또는 필드 이전 로직
+                data.saveVersion = 1;
+                goto case 1;
+            case 1:
+                data.tutorialCompleted = true;
+                data.saveVersion = CurrentVersion;
+                break;
+            default:
+                data.saveVersion = CurrentVersion;
+                break;
+        }
+
+        Debug.Log($"[SaveManager] 세이브 데이터 버전 마이그레이션 완료 (v{fromVersion} -> v{data.saveVersion})");
     }
 
     /// <summary>
@@ -240,7 +375,7 @@ public class SaveManager : MonoBehaviour
     /// </summary>
     private double ComputeElapsedSecondsSinceLastSave(long lastSaveTicksUtc)
     {
-        if (lastSaveTicksUtc <= 0) return 0;
+        if (lastSaveTicksUtc <= 0 || lastSaveTicksUtc > DateTime.MaxValue.Ticks) return 0;
 
         DateTime lastSaveUtc = new DateTime(lastSaveTicksUtc, DateTimeKind.Utc);
         double elapsedSeconds = (DateTime.UtcNow - lastSaveUtc).TotalSeconds;

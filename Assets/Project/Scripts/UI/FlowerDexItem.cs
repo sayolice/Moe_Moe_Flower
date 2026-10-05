@@ -29,6 +29,8 @@ public class FlowerDexItem : MonoBehaviour
     private string flowerId;
     private FlowerDexPanel panel;
 
+    public string FlowerId => flowerId;
+
     public void Setup(string id, FlowerDexPanel owner)
     {
         flowerId = id;

@@ -128,7 +128,8 @@ public class GardenSaveData
 [Serializable]
 public class SaveData
 {
-    public int saveVersion = 1;
+    public int saveVersion = 2;
+    public bool tutorialCompleted;
 
     // [골드를 BigNumber로 저장하는 방법] 예전 세이브 파일은 totalGold를 순수 숫자(JSON number)로
     // 저장했다. 필드 이름을 그대로 "totalGold"로 유지해야 그 값을 계속 읽을 수 있다(JsonUtility는

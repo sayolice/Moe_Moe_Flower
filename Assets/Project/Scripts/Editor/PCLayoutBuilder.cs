@@ -219,6 +219,10 @@ public static class PCLayoutBuilder
         if (settingsButtonTr != null)
             settingsPanel.openButton = settingsButtonTr.GetComponent<Button>();
 
+        Transform miniArenaButtonTr = topBarGO.transform.Find("MiniArenaButton");
+        if (miniArenaButtonTr != null)
+            canvasGO.GetComponent<UIManager>().miniArenaButton = miniArenaButtonTr.GetComponent<Button>();
+
         // ── 오프라인 정산 팝업 (Canvas 최상위 마지막 자식 = 항상 맨 위에 그려짐) ──
         BuildOfflineSummaryPopup(canvasGO.transform);
 
@@ -252,12 +256,33 @@ public static class PCLayoutBuilder
         SetupText(gGO, "골드 0", font, 24f, TextAlignmentOptions.Left,
                   new Vector2(0f, 0f), new Vector2(0.5f, 1f), new Vector2(16f, 0f), new Vector2(-8f, 0f));
 
-        // GoldPerSecondText (오른쪽 끝은 SettingsButton + DexButton 두 개 자리만큼 비워둠)
+        // GoldPerSecondText (오른쪽 끝은 아레나/설정/도감 버튼 자리만큼 비워둠)
         Transform rTr = topBar.transform.Find("GoldPerSecondText");
         GameObject rGO = (rTr != null) ? rTr.gameObject : new GameObject("GoldPerSecondText");
         rGO.transform.SetParent(topBar.transform, false);
         SetupText(rGO, "골드 +0.0/s", font, 18f, TextAlignmentOptions.Right,
-                  new Vector2(0.5f, 0f), new Vector2(1f, 1f), new Vector2(8f, 0f), new Vector2(-134f, 0f));
+                   new Vector2(0.5f, 0f), new Vector2(1f, 1f), new Vector2(8f, 0f), new Vector2(-196f, 0f));
+
+        Transform arenaTr = topBar.transform.Find("MiniArenaButton");
+        GameObject arenaGO = arenaTr != null ? arenaTr.gameObject : new GameObject("MiniArenaButton");
+        arenaGO.transform.SetParent(topBar.transform, false);
+        RectTransform arenaRT = arenaGO.GetComponent<RectTransform>();
+        if (arenaRT == null) arenaRT = arenaGO.AddComponent<RectTransform>();
+        arenaRT.anchorMin = new Vector2(1f, 0f);
+        arenaRT.anchorMax = new Vector2(1f, 1f);
+        arenaRT.pivot = new Vector2(1f, 0.5f);
+        arenaRT.sizeDelta = new Vector2(55f, 0f);
+        arenaRT.anchoredPosition = new Vector2(-134f, 0f);
+        Image arenaBg = arenaGO.GetComponent<Image>();
+        if (arenaBg == null) arenaBg = arenaGO.AddComponent<Image>();
+        arenaBg.color = new Color(0.28f, 0.47f, 0.35f, 1f);
+        Button arenaButton = arenaGO.GetComponent<Button>();
+        if (arenaButton == null) arenaButton = arenaGO.AddComponent<Button>();
+        arenaButton.targetGraphic = arenaBg;
+        Transform arenaLabelTr = arenaGO.transform.Find("Label");
+        GameObject arenaLabel = arenaLabelTr != null ? arenaLabelTr.gameObject : new GameObject("Label");
+        arenaLabel.transform.SetParent(arenaGO.transform, false);
+        SetupText(arenaLabel, "데모", font, 16f, TextAlignmentOptions.Center, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
 
         // DexButton (도감 열기, 우측 끝 고정폭)
         Transform dexTr = topBar.transform.Find("DexButton");
@@ -295,7 +320,7 @@ public static class PCLayoutBuilder
         settingsRT.anchorMax = new Vector2(1f, 1f);
         settingsRT.pivot = new Vector2(1f, 0.5f);
         settingsRT.sizeDelta = new Vector2(55f, 0f);
-        settingsRT.anchoredPosition = new Vector2(-71f, 0f); // DexButton(-8~-63) 왼쪽에 8px 간격
+        settingsRT.anchoredPosition = new Vector2(-71f, 0f); // 도감 버튼 왼쪽에 8px 간격
 
         Image settingsBg = settingsGO.GetComponent<Image>();
         if (settingsBg == null) settingsBg = settingsGO.AddComponent<Image>();

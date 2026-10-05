@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -36,6 +37,8 @@ public class OfflineSummaryPopup : MonoBehaviour
     public Button closeButton;
 
     private CanvasGroup canvasGroup;
+    private OfflineSettlementResult pendingSettlement;
+    private bool isWaitingToShowSettlement;
 
     private void Awake()
     {
@@ -52,16 +55,30 @@ public class OfflineSummaryPopup : MonoBehaviour
         if (closeButton != null) closeButton.onClick.AddListener(Hide);
 
         if (SaveManager.Instance != null)
+        {
             SaveManager.Instance.OnOfflineSettlementApplied += HandleSettlement;
+            HandleSettlement(SaveManager.Instance.TakePendingOfflineSettlementResult());
+        }
     }
 
     private void OnDestroy()
     {
+        StopAllCoroutines();
         if (SaveManager.Instance != null)
             SaveManager.Instance.OnOfflineSettlementApplied -= HandleSettlement;
     }
 
     private void HandleSettlement(OfflineSettlementResult result)
+    {
+        if (result == null) return;
+        SaveManager.Instance?.TakePendingOfflineSettlementResult();
+
+        pendingSettlement = result;
+        if (!isWaitingToShowSettlement)
+            StartCoroutine(ShowSettlementWhenReady());
+    }
+
+    private void ShowSettlement(OfflineSettlementResult result)
     {
         if (result == null) return;
 
@@ -85,6 +102,20 @@ public class OfflineSummaryPopup : MonoBehaviour
             gardenSummaryText.text = BuildGardenSummaryText(result);
 
         SetVisible(true);
+    }
+
+    private IEnumerator ShowSettlementWhenReady()
+    {
+        isWaitingToShowSettlement = true;
+        yield return null;
+
+        while (TutorialManager.IsRunning)
+            yield return null;
+
+        OfflineSettlementResult result = pendingSettlement;
+        pendingSettlement = null;
+        isWaitingToShowSettlement = false;
+        ShowSettlement(result);
     }
 
     /// <summary>

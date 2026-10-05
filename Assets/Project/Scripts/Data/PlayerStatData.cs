@@ -78,7 +78,7 @@ public class PlayerStatData : ScriptableObject
         while (levels < SAFETY_CAP)
         {
             BigNumber cost = GetUpgradeCost(fromLevel + levels);
-            if (cost > remaining) break;
+            if (cost <= BigNumber.Zero || cost > remaining) break;
 
             remaining -= cost;
             levels++;

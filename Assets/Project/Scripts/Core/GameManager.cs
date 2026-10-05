@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 /// <summary>
@@ -15,6 +16,13 @@ public class GameManager : MonoBehaviour
 
     public BigNumber totalGold = BigNumber.Zero;
 
+    /// <summary>
+    /// 골드 잔액이 바뀔 때마다 발생 — AddGold/TrySpendGold/SetGold 모두 이 이벤트를 발생시킨다.
+    /// UIManager는 매 프레임 totalGold를 폴링하는 대신 이 이벤트를 구독해서 갱신한다.
+    /// 인자: 변경 후 새 골드 잔액.
+    /// </summary>
+    public event Action<BigNumber> OnGoldChanged;
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -29,16 +37,25 @@ public class GameManager : MonoBehaviour
     public void AddGold(BigNumber amount)
     {
         totalGold += amount;
-        // TODO: UI 골드 표시 갱신 이벤트 연결
+        OnGoldChanged?.Invoke(totalGold);
     }
 
-    /// <summary> 세이브 불러오기 전용: 골드를 저장된 값으로 직접 덮어쓴다. </summary>
-    public void SetGold(BigNumber amount) => totalGold = amount;
+    /// <summary>
+    /// 세이브 불러오기 전용: 골드를 저장된 값으로 직접 덮어쓴다.
+    /// 불러오기 후 UI 동기화를 위해 OnGoldChanged도 발생시킨다.
+    /// </summary>
+    public void SetGold(BigNumber amount)
+    {
+        totalGold = amount;
+        OnGoldChanged?.Invoke(totalGold);
+    }
 
     public bool TrySpendGold(BigNumber amount)
     {
+        if (amount < BigNumber.Zero) return false;
         if (totalGold < amount) return false;
         totalGold -= amount;
+        OnGoldChanged?.Invoke(totalGold);
         return true;
     }
 }

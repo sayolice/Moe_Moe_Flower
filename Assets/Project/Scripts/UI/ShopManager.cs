@@ -86,6 +86,9 @@ public class ShopManager : MonoBehaviour
             return;
         }
 
+        if (SoundManager.Instance != null)
+            SoundManager.Instance.PlayGoldSound();
+
         Debug.Log($"[ShopManager] 구매 성공: {flowerId}");
         // TryPurchaseSeed가 내부에서 OnOwnedFlowersChanged를 이미 동기 호출했으므로
         // BuildShop()이 그 안에서 실행되어 이 항목은 이 시점에 이미 목록에서 빠져 있다.

@@ -829,7 +829,9 @@ public class GardenManager : MonoBehaviour
     // 꾸미기 (작업 4 — 데이터 구조와 배치 기능만. 성능에 절대 관여하지 않음)
     // ===================================================================
 
-    public DecorationData GetDecorationData(string id) => allDecorations.Find(d => d != null && d.decorationId == id);
+    public DecorationData GetDecorationData(string id) => allDecorations != null
+        ? allDecorations.Find(d => d != null && d.decorationId == id)
+        : null;
     public bool IsDecorationOwned(string id) => ownedDecorationIds.Contains(id);
     public IEnumerable<string> GetPlacedDecorationIds() => decorationPlacements.Keys;
     public Vector2Int? GetDecorationOrigin(string id) =>
@@ -873,19 +875,37 @@ public class GardenManager : MonoBehaviour
     }
 
     // ===================================================================
-    // 배치 프리셋 (작업 6.4 — 구조만. UI는 이후 작업)
+    // 배치 프리셋
     // ===================================================================
 
-    public void SaveCurrentAsPreset(int slotIndex, string presetName)
+    public bool HasPreset(int slotIndex)
+    {
+        return slotIndex >= 0 && slotIndex < presets.Count &&
+               presets[slotIndex] != null &&
+               presets[slotIndex].placements != null &&
+               presets[slotIndex].placements.Count > 0;
+    }
+
+    public GardenPreset GetPreset(int slotIndex)
+    {
+        if (slotIndex >= 0 && slotIndex < presets.Count) return presets[slotIndex];
+        return null;
+    }
+
+    public void SaveCurrentAsPreset(int slotIndex, string presetName = null)
     {
         if (slotIndex < 0 || slotIndex >= MaxPresetSlots) return;
         while (presets.Count <= slotIndex) presets.Add(new GardenPreset());
 
-        GardenPreset preset = presets[slotIndex];
-        preset.presetName = presetName;
+        GardenPreset preset = presets[slotIndex] ?? (presets[slotIndex] = new GardenPreset());
+        if (preset.placements == null) preset.placements = new List<GardenFlowerPlacement>();
+        preset.presetName = string.IsNullOrEmpty(presetName) ? $"프리셋 {slotIndex + 1}" : presetName;
         preset.placements.Clear();
         foreach (var kvp in flowerPlacements)
             preset.placements.Add(new GardenFlowerPlacement { flowerId = kvp.Key, x = kvp.Value.x, y = kvp.Value.y });
+
+        OnGardenChanged?.Invoke();
+        SaveManager.Instance?.Save();
     }
 
     /// <summary>
@@ -895,12 +915,32 @@ public class GardenManager : MonoBehaviour
     public void ApplyPreset(int slotIndex)
     {
         if (slotIndex < 0 || slotIndex >= presets.Count) return;
+        GardenPreset preset = presets[slotIndex];
+        if (preset == null || preset.placements == null) return;
 
         foreach (string id in flowerPlacements.Keys.ToList())
             RemoveFlower(id);
 
-        foreach (GardenFlowerPlacement p in presets[slotIndex].placements)
-            TryPlaceFlower(p.flowerId, new Vector2Int(p.x, p.y));
+        foreach (GardenFlowerPlacement p in preset.placements)
+            if (p != null && !string.IsNullOrEmpty(p.flowerId))
+                TryPlaceFlower(p.flowerId, new Vector2Int(p.x, p.y));
+
+        OnGardenChanged?.Invoke();
+        SaveManager.Instance?.Save();
+    }
+
+    public void ClearPreset(int slotIndex)
+    {
+        if (slotIndex >= 0 && slotIndex < presets.Count && presets[slotIndex] != null)
+        {
+            if (presets[slotIndex].placements == null)
+                presets[slotIndex].placements = new List<GardenFlowerPlacement>();
+            else
+                presets[slotIndex].placements.Clear();
+            presets[slotIndex].presetName = string.Empty;
+            OnGardenChanged?.Invoke();
+            SaveManager.Instance?.Save();
+        }
     }
 
     /// <summary> 데이터 초기화(설정 화면 전용) — 정원을 완전히 빈 상태로 되돌린다. </summary>
@@ -961,30 +1001,61 @@ public class GardenManager : MonoBehaviour
 
         if (data == null) data = new GardenSaveData();
 
-        currentSizeIndex = Mathf.Max(0, data.sizeIndex);
-        lastTendedTimeTicksUtc = data.lastTendedTimeTicksUtc;
+        List<GardenData.GardenSize> sizes = ActiveGardenData.sizes;
+        currentSizeIndex = sizes != null && sizes.Count > 0
+            ? Mathf.Clamp(data.sizeIndex, 0, sizes.Count - 1)
+            : 0;
+        lastTendedTimeTicksUtc = data.lastTendedTimeTicksUtc > 0 && data.lastTendedTimeTicksUtc <= DateTime.MaxValue.Ticks
+            ? data.lastTendedTimeTicksUtc
+            : DateTime.UtcNow.Ticks;
 
         if (data.flowerPlacements != null)
             foreach (GardenFlowerPlacement p in data.flowerPlacements)
-                if (!string.IsNullOrEmpty(p.flowerId))
-                    flowerPlacements[p.flowerId] = new Vector2Int(p.x, p.y);
+            {
+                if (p == null || string.IsNullOrEmpty(p.flowerId) || flowerPlacements.ContainsKey(p.flowerId)) continue;
+
+                FlowerInstance instance = FlowerManager.Instance != null ? FlowerManager.Instance.GetInstance(p.flowerId) : null;
+                FlowerData flowerData = FlowerManager.Instance != null ? FlowerManager.Instance.GetFlowerData(p.flowerId) : null;
+                Vector2Int origin = new Vector2Int(p.x, p.y);
+                if (instance != null && instance.isBloomed && flowerData != null && CanPlaceAt(flowerData, origin))
+                    flowerPlacements[p.flowerId] = origin;
+            }
 
         if (data.tileTouches != null)
             foreach (GardenTileTouchEntry t in data.tileTouches)
-                if (!string.IsNullOrEmpty(t.flowerId))
-                    tileTouchCounts[t.flowerId] = t.touchCount;
+                if (t != null && !string.IsNullOrEmpty(t.flowerId) && flowerPlacements.ContainsKey(t.flowerId))
+                    tileTouchCounts[t.flowerId] = Mathf.Clamp(t.touchCount, 0, Mathf.Max(0, ActiveGardenData.touchesPerPlacedFlowerToFullyRestore));
 
         if (data.ownedDecorationIds != null)
             foreach (string id in data.ownedDecorationIds)
-                if (!string.IsNullOrEmpty(id)) ownedDecorationIds.Add(id);
+                if (!string.IsNullOrEmpty(id) && GetDecorationData(id) != null) ownedDecorationIds.Add(id);
 
         if (data.decorationPlacements != null)
             foreach (GardenDecorationPlacement p in data.decorationPlacements)
-                if (!string.IsNullOrEmpty(p.decorationId))
-                    decorationPlacements[p.decorationId] = new Vector2Int(p.x, p.y);
+            {
+                if (p == null || string.IsNullOrEmpty(p.decorationId) || decorationPlacements.ContainsKey(p.decorationId) ||
+                    !ownedDecorationIds.Contains(p.decorationId)) continue;
+
+                DecorationData decoration = GetDecorationData(p.decorationId);
+                Vector2Int origin = new Vector2Int(p.x, p.y);
+                if (decoration != null && decoration.GetOccupiedCells(origin).All(IsInsideGrid))
+                    decorationPlacements[p.decorationId] = origin;
+            }
 
         if (data.presets != null)
-            presets = data.presets;
+            foreach (GardenPreset preset in data.presets.Take(MaxPresetSlots))
+            {
+                presets.Add(preset == null
+                    ? new GardenPreset()
+                    : new GardenPreset
+                    {
+                        presetName = preset.presetName,
+                        placements = (preset.placements ?? new List<GardenFlowerPlacement>())
+                            .Where(p => p != null && !string.IsNullOrEmpty(p.flowerId))
+                            .Select(p => new GardenFlowerPlacement { flowerId = p.flowerId, x = p.x, y = p.y })
+                            .ToList()
+                    });
+            }
 
         RecomputeAdjacencyCache();
     }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -256,7 +257,7 @@ public class MemorialPlayerPanel : MonoBehaviour
                     speakerIsCenter = false;
                     break;
                 case "ENTER_C":
-                    FadeInCenter(GetSprite(characterDict, arg));
+                    FadeInCenter(GetCharacterSprite(arg));
                     break;
                 case "EXIT_C":
                     FadeOutCenter();
@@ -280,6 +281,27 @@ public class MemorialPlayerPanel : MonoBehaviour
         }
 
         return rawLine;
+    }
+
+    private Sprite GetCharacterSprite(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return null;
+        if (characterDict.TryGetValue(key, out Sprite s) && s != null) return s;
+
+        // 폴백: FlowerManager에 등록된 꽃들의 bloomSprite에서 자동 조회
+        if (FlowerManager.Instance != null && FlowerManager.Instance.allFlowers != null)
+        {
+            foreach (FlowerData flower in FlowerManager.Instance.allFlowers)
+            {
+                if (flower == null) continue;
+                if (string.Equals(flower.flowerId, key, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(flower.displayName, key, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (flower.bloomSprite != null) return flower.bloomSprite;
+                }
+            }
+        }
+        return null;
     }
 
     private static Sprite GetSprite(Dictionary<string, Sprite> dict, string key)
@@ -365,13 +387,52 @@ public class MemorialPlayerPanel : MonoBehaviour
         backgroundImage.gameObject.SetActive(true);
     }
 
+    private Sprite GetCGSprite(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return null;
+        if (cgDict.TryGetValue(key, out Sprite s) && s != null) return s;
+
+        // 프로젝트의 Sprites/Cg 디렉토리에서 동적 로드 (jpg/png)
+        try
+        {
+            string cgRoot = Path.Combine(Application.dataPath, "Project", "Sprites", "Cg");
+            if (Directory.Exists(cgRoot))
+            {
+                string[] files = Directory.GetFiles(cgRoot, key + ".*", SearchOption.AllDirectories);
+                foreach (string file in files)
+                {
+                    string ext = Path.GetExtension(file).ToLowerInvariant();
+                    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg")
+                    {
+                        byte[] bytes = File.ReadAllBytes(file);
+                        Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                        if (tex.LoadImage(bytes))
+                        {
+                            tex.filterMode = FilterMode.Bilinear;
+                            Sprite newSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+                            newSprite.name = key;
+                            cgDict[key] = newSprite;
+                            return newSprite;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[MemorialPlayerPanel] Failed to auto-load CG image for '{key}': {ex.Message}");
+        }
+
+        return null;
+    }
+
     /// <summary> CG는 화면 전체(배경+캐릭터)를 덮고, 표시/해제 둘 다 페이드 처리한다(요청 사항).
     /// 캐릭터 슬롯은 CG 페이드인이 "완료된 뒤"에 꺼야 자연스럽다 — 페이드 도중엔 CG가 반투명이라
     /// 캐릭터가 비치는 크로스페이드처럼 보이고, 다 덮인 다음에 슬롯을 꺼야 낭비 렌더링 없이
     /// 깜빡임도 없다(sprite/color는 절대 건드리지 않으므로 CG_OFF 때 그대로 복귀한다). </summary>
     private void ShowCG(string key)
     {
-        Sprite sprite = GetSprite(cgDict, key);
+        Sprite sprite = GetCGSprite(key);
         if (sprite == null || cgImage == null) return;
         if (cgFadeCoroutine != null) { StopCoroutine(cgFadeCoroutine); cgFadeCoroutine = null; }
 

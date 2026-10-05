@@ -212,17 +212,24 @@ public class FlowerUpgradeItem : MonoBehaviour
 
         LevelUpAmount mode = amountSelector != null ? amountSelector.Current : LevelUpAmount.One;
 
+        int gained = 0;
         switch (mode)
         {
             case LevelUpAmount.One:
-                FlowerManager.Instance.TryLevelUpFlowerBy(flowerId, 1);
+                gained = FlowerManager.Instance.TryLevelUpFlowerBy(flowerId, 1);
                 break;
             case LevelUpAmount.Ten:
-                FlowerManager.Instance.TryLevelUpFlowerBy(flowerId, 10);
+                gained = FlowerManager.Instance.TryLevelUpFlowerBy(flowerId, 10);
                 break;
             case LevelUpAmount.Max:
-                FlowerManager.Instance.TryLevelUpFlowerToMax(flowerId);
+                gained = FlowerManager.Instance.TryLevelUpFlowerToMax(flowerId);
                 break;
+        }
+
+        if (gained > 0)
+        {
+            if (SoundManager.Instance != null)
+                SoundManager.Instance.PlayLevelUpSound();
         }
 
         // 실제 레벨업이 성공하면 골드/레벨이 반드시 바뀌므로 다음 프레임에 자연히 재계산되지만,

@@ -280,4 +280,183 @@ public class FlowerDisplayController : MonoBehaviour
             default: return Color.white;
         }
     }
+
+    // ===================================================================
+    // 꽃소녀 터치 상호작용 (바운스 애니메이션 & 말풍선 대사)
+    // ===================================================================
+
+    private Coroutine bounceCoroutine;
+
+    /// <summary>
+    /// 꽃소녀 터치 시 호출되는 상호작용: 통통 튀는 탄성 애니메이션 + 대사 말풍선 + 하트 연출!
+    /// </summary>
+    public void TriggerTouchInteraction()
+    {
+        if (FlowerManager.Instance == null) return;
+
+        FlowerInstance instance = FlowerManager.Instance.GetCurrentInstance();
+        FlowerData data = FlowerManager.Instance.GetCurrentData();
+        if (instance == null || data == null) return;
+
+        // 1. 통통 튀는 탄성 애니메이션 (Squash & Stretch)
+        if (bounceCoroutine != null) StopCoroutine(bounceCoroutine);
+        bounceCoroutine = StartCoroutine(AnimateBounce());
+
+        // 2. 머리 위 말풍선 위치 계산 (월드 좌표)
+        Bounds bounds = spriteRenderer.sprite != null ? spriteRenderer.bounds : new Bounds(transform.position, Vector3.one);
+        Vector3 bubblePos = transform.position + new Vector3(0f, bounds.extents.y * currentZoom + 0.5f, 0f);
+
+        // 3. 상황별 상호작용 대사 선택
+        string quote = GetInteractionQuote(data, instance);
+
+        if (TouchFeedbackManager.Instance != null)
+        {
+            TouchFeedbackManager.Instance.ShowDialogueBubble(bubblePos, quote);
+            TouchFeedbackManager.Instance.SpawnHeartBurst(transform.position + new Vector3(0f, bounds.extents.y * 0.25f, 0f));
+        }
+    }
+
+    private System.Collections.IEnumerator AnimateBounce()
+    {
+        Vector3 targetScale = baseScale * currentZoom;
+        const float duration = 0.22f;
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = elapsed / duration;
+
+            float squashX, squashY;
+            if (t < 0.25f)
+            {
+                float subT = t / 0.25f;
+                squashX = Mathf.Lerp(1.0f, 1.09f, subT);
+                squashY = Mathf.Lerp(1.0f, 0.91f, subT);
+            }
+            else if (t < 0.60f)
+            {
+                float subT = (t - 0.25f) / 0.35f;
+                squashX = Mathf.Lerp(1.09f, 0.94f, subT);
+                squashY = Mathf.Lerp(0.91f, 1.07f, subT);
+            }
+            else
+            {
+                float subT = (t - 0.60f) / 0.40f;
+                squashX = Mathf.Lerp(0.94f, 1.0f, subT);
+                squashY = Mathf.Lerp(1.07f, 1.0f, subT);
+            }
+
+            transform.localScale = new Vector3(targetScale.x * squashX, targetScale.y * squashY, targetScale.z);
+            yield return null;
+        }
+
+        transform.localScale = targetScale;
+        bounceCoroutine = null;
+    }
+
+    private string GetInteractionQuote(FlowerData data, FlowerInstance instance)
+    {
+        if (!instance.isBloomed)
+        {
+            string[] unbloomedQuotes = {
+                "따뜻한 손길 고마워요~ 쑥쑥 자랄게요!",
+                "햇살과 당신의 사랑을 듬뿍 받는 중이에요!",
+                "빨리 예쁜 꽃으로 피어나서 보답할게요~",
+                "간지러워요, 헤헤~ 힘이 불끈 솟아요!"
+            };
+            return unbloomedQuotes[UnityEngine.Random.Range(0, unbloomedQuotes.Length)];
+        }
+
+        string id = data.flowerId != null ? data.flowerId.ToLower() : "";
+        string[] quotes;
+
+        if (id.Contains("dandelion"))
+        {
+            quotes = new string[] {
+                "후훗, 간지러워요~",
+                "바람을 타고 당신과 어디든 함께 가고 싶어요!",
+                "당신의 손길은 봄바람처럼 부드러워요.",
+                "날아가지 않고 여기 꼭 붙어있을게요, 헤헤."
+            };
+        }
+        else if (id.Contains("tulip"))
+        {
+            quotes = new string[] {
+                "헤헤, 오늘도 저 보러 와주신 건가요?",
+                "사랑을 듬뿍 받는 기분이라 정말 행복해요~",
+                "당신을 위해 더 예쁘게 활짝 피어날게요!",
+                "오직 저만 바라봐 주실 거죠?"
+            };
+        }
+        else if (id.Contains("cherry") || id.Contains("blossom"))
+        {
+            quotes = new string[] {
+                "꽃잎이 흩날릴 때마다 가슴이 두근거려요...",
+                "봄이 끝나도 당신 곁에 영원히 머물고 싶어요.",
+                "제 벚꽃잎, 당신처럼 참 예쁘죠?"
+            };
+        }
+        else if (id.Contains("rose") || id.Contains("roze"))
+        {
+            quotes = new string[] {
+                "어머... 그렇게 다정하게 만져주시면 부끄러운데요?",
+                "가시 조심하세요, 당신 손이 다칠까 봐 걱정돼요.",
+                "오직 당신만을 위한 매혹적인 향기를 드릴게요."
+            };
+        }
+        else if (id.Contains("sunflower"))
+        {
+            quotes = new string[] {
+                "당신을 보면 온 세상이 반짝반짝 빛나요!",
+                "오늘도 활짝 웃어볼게요, 에헤헤!",
+                "당신은 저의 하나뿐인 눈부신 태양이에요!"
+            };
+        }
+        else if (id.Contains("hydrangea"))
+        {
+            quotes = new string[] {
+                "촉촉한 비가 내리면 당신 생각이 나요.",
+                "당신의 마음에 따라 제 색도 예쁘게 물드는 것 같아요."
+            };
+        }
+        else if (id.Contains("lavender"))
+        {
+            quotes = new string[] {
+                "은은한 보랏빛 향기로 당신의 피로를 풀어드릴게요...",
+                "편안하게 쉬어가세요. 언제나 곁에서 지켜드릴게요."
+            };
+        }
+        else if (id.Contains("lotus"))
+        {
+            quotes = new string[] {
+                "맑은 물 위에서 오직 당신만을 기다리고 있었어요.",
+                "고결하고 맑은 마음으로 당신의 행복을 빌게요."
+            };
+        }
+        else if (id.Contains("glory"))
+        {
+            quotes = new string[] {
+                "좋은 아침이에요! 오늘도 활기차게 시작해봐요!",
+                "당신에게 세상에서 제일 먼저 아침 인사를 건네고 싶었어요!"
+            };
+        }
+        else if (id.Contains("pansy"))
+        {
+            quotes = new string[] {
+                "나를 생각해 주세요, 꽃말처럼 온종일 당신 생각뿐이에요~",
+                "헤헤, 자주 만져주시니까 너무 신나요!"
+            };
+        }
+        else
+        {
+            quotes = new string[] {
+                "오늘도 함께 있어서 정말 기뻐요!",
+                "당신의 따스한 온기가 느껴져요~",
+                "더 많은 시간을 당신과 함께하고 싶어요!"
+            };
+        }
+
+        return quotes[UnityEngine.Random.Range(0, quotes.Length)];
+    }
 }

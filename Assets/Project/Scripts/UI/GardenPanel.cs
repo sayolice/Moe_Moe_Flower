@@ -35,6 +35,21 @@ public class GardenPanel : MonoBehaviour
     public Button expandButton;
     public TMP_Text expandButtonText;
 
+    [Header("배치 프리셋 UI")]
+    public GameObject presetBarGO;
+    public Button[] inspectorPresetButtons;
+    public TMP_Text[] inspectorPresetTexts;
+    private readonly List<Button> presetButtons = new List<Button>();
+    private readonly List<TMP_Text> presetTexts = new List<TMP_Text>();
+    private GameObject presetModalRoot;
+    private TMP_Text presetModalTitle;
+    private TMP_Text presetModalBody;
+    private Button presetModalLoadBtn;
+    private Button presetModalSaveBtn;
+    private Button presetModalClearBtn;
+    private Button presetModalCloseBtn;
+    private int currentSelectedPresetSlot = -1;
+
     [Header("격자")]
     public Transform gridContent;
     public GridLayoutGroup gridLayout;
@@ -165,6 +180,8 @@ public class GardenPanel : MonoBehaviour
         RebuildRoster();
         UpdateSummary();
         UpdateArmedStatusText();
+        EnsurePresetUI();
+        UpdatePresetUI();
     }
 
     /// <summary>
@@ -1004,5 +1021,342 @@ public class GardenPanel : MonoBehaviour
     private void HandleExpandClicked()
     {
         GardenManager.Instance.TryExpandGarden(); // 성공/실패 모두 OnGardenChanged 또는 무반응으로 자연히 처리됨
+    }
+
+    // ===================================================================
+    // 배치 프리셋 UI
+    // ===================================================================
+
+    private void EnsurePresetUI()
+    {
+        if (presetButtons.Count > 0) return;
+
+        if (inspectorPresetButtons != null && inspectorPresetButtons.Length > 0)
+        {
+            for (int i = 0; i < inspectorPresetButtons.Length; i++)
+            {
+                if (inspectorPresetButtons[i] == null) continue;
+                presetButtons.Add(inspectorPresetButtons[i]);
+                presetTexts.Add(inspectorPresetTexts != null && i < inspectorPresetTexts.Length ? inspectorPresetTexts[i] : null);
+                int slot = i;
+                inspectorPresetButtons[i].onClick.AddListener(() => OpenPresetDialog(slot));
+            }
+            return;
+        }
+
+        Transform existing = transform.Find("PresetBar");
+        if (existing != null)
+        {
+            presetBarGO = existing.gameObject;
+            for (int i = 0; i < 3; i++)
+            {
+                Transform btnTrans = existing.Find($"PresetBtn_{i}");
+                if (btnTrans != null)
+                {
+                    Button btn = btnTrans.GetComponent<Button>();
+                    TMP_Text txt = btnTrans.GetComponentInChildren<TMP_Text>();
+                    if (btn != null)
+                    {
+                        presetButtons.Add(btn);
+                        presetTexts.Add(txt);
+                        int slot = i;
+                        btn.onClick.AddListener(() => OpenPresetDialog(slot));
+                    }
+                }
+            }
+            if (presetButtons.Count == 3) return;
+        }
+
+        // 동적 UI 생성: 상단 요약 바 바로 아래 프리셋 바 배치
+        presetBarGO = new GameObject("PresetBar");
+        presetBarGO.transform.SetParent(transform, false);
+        RectTransform rt = presetBarGO.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = new Vector2(0f, -44f);
+        rt.sizeDelta = new Vector2(0f, 32f);
+
+        Image barImg = presetBarGO.AddComponent<Image>();
+        barImg.color = new Color(0.12f, 0.13f, 0.16f, 0.95f);
+
+        HorizontalLayoutGroup hlg = presetBarGO.AddComponent<HorizontalLayoutGroup>();
+        hlg.padding = new RectOffset(8, 8, 3, 3);
+        hlg.spacing = 6f;
+        hlg.childControlWidth = true;
+        hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandHeight = true;
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+
+        TMP_FontAsset font = totalGpsText != null ? totalGpsText.font : null;
+
+        for (int i = 0; i < 3; i++)
+        {
+            GameObject btnGO = new GameObject($"PresetBtn_{i}");
+            btnGO.transform.SetParent(presetBarGO.transform, false);
+
+            Image btnImg = btnGO.AddComponent<Image>();
+            btnImg.color = new Color(0.22f, 0.24f, 0.28f, 1f);
+
+            Button btn = btnGO.AddComponent<Button>();
+            btn.targetGraphic = btnImg;
+
+            ColorBlock cb = btn.colors;
+            cb.highlightedColor = new Color(0.32f, 0.36f, 0.42f, 1f);
+            cb.pressedColor = new Color(0.18f, 0.20f, 0.23f, 1f);
+            btn.colors = cb;
+
+            GameObject txtGO = new GameObject("Text");
+            txtGO.transform.SetParent(btnGO.transform, false);
+            RectTransform txtRT = txtGO.AddComponent<RectTransform>();
+            txtRT.anchorMin = Vector2.zero;
+            txtRT.anchorMax = Vector2.one;
+            txtRT.offsetMin = Vector2.zero;
+            txtRT.offsetMax = Vector2.zero;
+
+            TMP_Text txt = txtGO.AddComponent<TextMeshProUGUI>();
+            if (font != null) txt.font = font;
+            txt.fontSize = 12f;
+            txt.fontStyle = FontStyles.Bold;
+            txt.alignment = TextAlignmentOptions.Center;
+            txt.color = Color.white;
+            txt.text = $"P{i + 1}";
+
+            int slot = i;
+            btn.onClick.AddListener(() => OpenPresetDialog(slot));
+
+            presetButtons.Add(btn);
+            presetTexts.Add(txt);
+        }
+
+        Transform gridAreaTrans = transform.Find("GridArea");
+        if (gridAreaTrans != null)
+        {
+            RectTransform gRT = gridAreaTrans.GetComponent<RectTransform>();
+            if (gRT != null) gRT.offsetMax = new Vector2(0f, -78f);
+        }
+    }
+
+    private void EnsurePresetDialog()
+    {
+        if (presetModalRoot != null) return;
+
+        Transform existing = transform.Find("PresetModal");
+        if (existing != null)
+        {
+            presetModalRoot = existing.gameObject;
+            return;
+        }
+
+        presetModalRoot = new GameObject("PresetModal");
+        presetModalRoot.transform.SetParent(transform, false);
+        RectTransform modalRT = presetModalRoot.AddComponent<RectTransform>();
+        modalRT.anchorMin = Vector2.zero;
+        modalRT.anchorMax = Vector2.one;
+        modalRT.offsetMin = Vector2.zero;
+        modalRT.offsetMax = Vector2.zero;
+
+        Image modalDim = presetModalRoot.AddComponent<Image>();
+        modalDim.color = new Color(0f, 0f, 0f, 0.65f);
+        Button modalBgBtn = presetModalRoot.AddComponent<Button>();
+        modalBgBtn.targetGraphic = modalDim;
+        modalBgBtn.onClick.AddListener(ClosePresetDialog);
+
+        // 중앙 카드 박스
+        GameObject cardGO = new GameObject("DialogCard");
+        cardGO.transform.SetParent(presetModalRoot.transform, false);
+        RectTransform cardRT = cardGO.AddComponent<RectTransform>();
+        cardRT.anchorMin = new Vector2(0.5f, 0.5f);
+        cardRT.anchorMax = new Vector2(0.5f, 0.5f);
+        cardRT.pivot = new Vector2(0.5f, 0.5f);
+        cardRT.sizeDelta = new Vector2(340f, 210f);
+
+        Image cardImg = cardGO.AddComponent<Image>();
+        cardImg.color = new Color(0.16f, 0.18f, 0.22f, 1f);
+        Button cardBlocker = cardGO.AddComponent<Button>();
+        cardBlocker.transition = Selectable.Transition.None;
+
+        TMP_FontAsset font = totalGpsText != null ? totalGpsText.font : null;
+
+        // 제목
+        GameObject titleGO = new GameObject("Title");
+        titleGO.transform.SetParent(cardGO.transform, false);
+        RectTransform titleRT = titleGO.AddComponent<RectTransform>();
+        titleRT.anchorMin = new Vector2(0f, 1f);
+        titleRT.anchorMax = new Vector2(1f, 1f);
+        titleRT.pivot = new Vector2(0.5f, 1f);
+        titleRT.anchoredPosition = new Vector2(0f, -12f);
+        titleRT.sizeDelta = new Vector2(-24f, 28f);
+
+        presetModalTitle = titleGO.AddComponent<TextMeshProUGUI>();
+        if (font != null) presetModalTitle.font = font;
+        presetModalTitle.fontSize = 15f;
+        presetModalTitle.fontStyle = FontStyles.Bold;
+        presetModalTitle.alignment = TextAlignmentOptions.Center;
+        presetModalTitle.color = new Color(1f, 0.88f, 0.4f, 1f);
+        presetModalTitle.text = "가든 배치 프리셋";
+
+        // 본문
+        GameObject bodyGO = new GameObject("Body");
+        bodyGO.transform.SetParent(cardGO.transform, false);
+        RectTransform bodyRT = bodyGO.AddComponent<RectTransform>();
+        bodyRT.anchorMin = new Vector2(0f, 0f);
+        bodyRT.anchorMax = new Vector2(1f, 1f);
+        bodyRT.offsetMin = new Vector2(16f, 52f);
+        bodyRT.offsetMax = new Vector2(-16f, -44f);
+
+        presetModalBody = bodyGO.AddComponent<TextMeshProUGUI>();
+        if (font != null) presetModalBody.font = font;
+        presetModalBody.fontSize = 13f;
+        presetModalBody.alignment = TextAlignmentOptions.TopLeft;
+        presetModalBody.color = new Color(0.88f, 0.9f, 0.95f, 1f);
+
+        // 버튼 행
+        GameObject btnRowGO = new GameObject("ButtonRow");
+        btnRowGO.transform.SetParent(cardGO.transform, false);
+        RectTransform btnRowRT = btnRowGO.AddComponent<RectTransform>();
+        btnRowRT.anchorMin = new Vector2(0f, 0f);
+        btnRowRT.anchorMax = new Vector2(1f, 0f);
+        btnRowRT.pivot = new Vector2(0.5f, 0f);
+        btnRowRT.anchoredPosition = new Vector2(0f, 10f);
+        btnRowRT.sizeDelta = new Vector2(-24f, 36f);
+
+        HorizontalLayoutGroup btnHlg = btnRowGO.AddComponent<HorizontalLayoutGroup>();
+        btnHlg.spacing = 6f;
+        btnHlg.childControlWidth = true;
+        btnHlg.childControlHeight = true;
+        btnHlg.childForceExpandWidth = true;
+        btnHlg.childForceExpandHeight = true;
+
+        presetModalLoadBtn = CreateModalButton(btnRowGO.transform, "LoadBtn", "불러오기", new Color(0.20f, 0.48f, 0.30f, 1f), font, HandleModalLoad);
+        presetModalSaveBtn = CreateModalButton(btnRowGO.transform, "SaveBtn", "저장", new Color(0.18f, 0.38f, 0.62f, 1f), font, HandleModalSave);
+        presetModalClearBtn = CreateModalButton(btnRowGO.transform, "ClearBtn", "비우기", new Color(0.55f, 0.22f, 0.22f, 1f), font, HandleModalClear);
+        presetModalCloseBtn = CreateModalButton(btnRowGO.transform, "CloseBtn", "닫기", new Color(0.30f, 0.32f, 0.36f, 1f), font, ClosePresetDialog);
+
+        presetModalRoot.SetActive(false);
+    }
+
+    private Button CreateModalButton(Transform parent, string name, string label, Color bgColor, TMP_FontAsset font, UnityEngine.Events.UnityAction action)
+    {
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+
+        Image img = go.AddComponent<Image>();
+        img.color = bgColor;
+
+        Button btn = go.AddComponent<Button>();
+        btn.targetGraphic = img;
+
+        GameObject txtGO = new GameObject("Label");
+        txtGO.transform.SetParent(go.transform, false);
+        RectTransform txtRT = txtGO.AddComponent<RectTransform>();
+        txtRT.anchorMin = Vector2.zero;
+        txtRT.anchorMax = Vector2.one;
+        txtRT.offsetMin = Vector2.zero;
+        txtRT.offsetMax = Vector2.zero;
+
+        TMP_Text txt = txtGO.AddComponent<TextMeshProUGUI>();
+        if (font != null) txt.font = font;
+        txt.fontSize = 12f;
+        txt.fontStyle = FontStyles.Bold;
+        txt.alignment = TextAlignmentOptions.Center;
+        txt.color = Color.white;
+        txt.text = label;
+
+        if (action != null) btn.onClick.AddListener(action);
+        return btn;
+    }
+
+    private void OpenPresetDialog(int slotIndex)
+    {
+        EnsurePresetUI();
+        EnsurePresetDialog();
+
+        currentSelectedPresetSlot = slotIndex;
+        bool hasPreset = GardenManager.Instance != null && GardenManager.Instance.HasPreset(slotIndex);
+        int currentPlacedCount = GardenManager.Instance != null ? GardenManager.Instance.PlacedFlowerCount : 0;
+
+        presetModalTitle.text = $"가든 배치 프리셋 {slotIndex + 1}";
+
+        if (hasPreset)
+        {
+            GardenPreset p = GardenManager.Instance.GetPreset(slotIndex);
+            int savedCount = (p != null && p.placements != null) ? p.placements.Count : 0;
+            presetModalBody.text = $"• 저장된 배치: 꽃 {savedCount}송이\n• 현재 배치: 꽃 {currentPlacedCount}송이\n\n프리셋을 불러오거나 현재 배치로 저장할 수 있습니다.";
+            presetModalLoadBtn.interactable = true;
+            presetModalClearBtn.interactable = true;
+        }
+        else
+        {
+            presetModalBody.text = $"현재 슬롯이 비어 있습니다.\n• 현재 정원 배치: 꽃 {currentPlacedCount}송이\n\n현재 배치를 프리셋 {slotIndex + 1}에 저장하시겠습니까?";
+            presetModalLoadBtn.interactable = false;
+            presetModalClearBtn.interactable = false;
+        }
+
+        presetModalSaveBtn.interactable = currentPlacedCount > 0;
+        presetModalRoot.SetActive(true);
+    }
+
+    private void HandleModalLoad()
+    {
+        if (GardenManager.Instance != null && currentSelectedPresetSlot >= 0)
+        {
+            GardenManager.Instance.ApplyPreset(currentSelectedPresetSlot);
+        }
+        ClosePresetDialog();
+        RebuildAll();
+    }
+
+    private void HandleModalSave()
+    {
+        if (GardenManager.Instance != null && currentSelectedPresetSlot >= 0)
+        {
+            GardenManager.Instance.SaveCurrentAsPreset(currentSelectedPresetSlot);
+        }
+        ClosePresetDialog();
+        RebuildAll();
+    }
+
+    private void HandleModalClear()
+    {
+        if (GardenManager.Instance != null && currentSelectedPresetSlot >= 0)
+        {
+            GardenManager.Instance.ClearPreset(currentSelectedPresetSlot);
+        }
+        ClosePresetDialog();
+        RebuildAll();
+    }
+
+    private void ClosePresetDialog()
+    {
+        if (presetModalRoot != null)
+            presetModalRoot.SetActive(false);
+    }
+
+    private void UpdatePresetUI()
+    {
+        if (presetButtons == null || presetButtons.Count == 0) return;
+
+        for (int i = 0; i < presetButtons.Count; i++)
+        {
+            if (presetButtons[i] == null || presetTexts[i] == null) continue;
+
+            bool hasPreset = GardenManager.Instance != null && GardenManager.Instance.HasPreset(i);
+            if (hasPreset)
+            {
+                GardenPreset p = GardenManager.Instance.GetPreset(i);
+                int count = (p != null && p.placements != null) ? p.placements.Count : 0;
+                presetTexts[i].text = $"P{i + 1} ({count}송이)";
+                if (presetButtons[i].image != null)
+                    presetButtons[i].image.color = new Color(0.20f, 0.40f, 0.28f, 1f); // 은은한 초록
+            }
+            else
+            {
+                presetTexts[i].text = $"P{i + 1} [비어있음]";
+                if (presetButtons[i].image != null)
+                    presetButtons[i].image.color = new Color(0.22f, 0.24f, 0.28f, 1f); // 기본 회색
+            }
+        }
     }
 }

@@ -137,7 +137,7 @@ public class FlowerData : ScriptableObject
         while (levels < SAFETY_CAP)
         {
             BigNumber cost = GetLevelUpCost(fromLevel + levels);
-            if (cost > remaining) break;
+            if (cost <= BigNumber.Zero || cost > remaining) break;
 
             remaining -= cost;
             levels++;

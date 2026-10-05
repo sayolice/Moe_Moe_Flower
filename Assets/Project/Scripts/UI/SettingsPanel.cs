@@ -22,6 +22,17 @@ public class SettingsPanel : MonoBehaviour
     public Button openButton;
     public Button closeButton;
 
+    [Header("사운드 설정 (BGM / SFX)")]
+    public Slider bgmSlider;
+    public TMP_Text bgmValueText;
+    public Button bgmMuteButton;
+    public TMP_Text bgmMuteButtonText;
+
+    public Slider sfxSlider;
+    public TMP_Text sfxValueText;
+    public Button sfxMuteButton;
+    public TMP_Text sfxMuteButtonText;
+
     [Header("데이터 초기화 — 반드시 확인 화면을 거친 뒤에만 실행된다")]
     public Button resetDataButton;
     public GameObject resetConfirmRoot; // 기본 비활성
@@ -63,6 +74,10 @@ public class SettingsPanel : MonoBehaviour
         if (cheatPasswordConfirmButton != null) cheatPasswordConfirmButton.onClick.AddListener(ConfirmCheatPassword);
         if (cheatPasswordCancelButton != null) cheatPasswordCancelButton.onClick.AddListener(HideCheatPasswordPrompt);
 
+        EnsureSoundSettingsUI();
+        EnsureTutorialReplayUI();
+        SyncSoundUI();
+
         SetVisible(false);
         if (resetConfirmRoot != null) resetConfirmRoot.SetActive(false);
         if (cheatPasswordRoot != null) cheatPasswordRoot.SetActive(false);
@@ -72,6 +87,7 @@ public class SettingsPanel : MonoBehaviour
     {
         HideResetConfirm(); // 예전에 확인창을 띄운 채로 닫았다가 다시 열리는 경우를 방지
         HideCheatPasswordPrompt();
+        SyncSoundUI();
         SetVisible(true);
     }
 
@@ -136,6 +152,317 @@ public class SettingsPanel : MonoBehaviour
         {
             if (cheatPasswordErrorText != null) cheatPasswordErrorText.gameObject.SetActive(true);
             if (cheatPasswordInput != null) cheatPasswordInput.text = "";
+        }
+    }
+
+    private void EnsureTutorialReplayUI()
+    {
+        Transform content = root.transform.Find("Scroll View/Viewport/Content");
+        if (content == null)
+        {
+            VerticalLayoutGroup layout = root.GetComponentInChildren<VerticalLayoutGroup>();
+            if (layout != null) content = layout.transform;
+        }
+        if (content == null || content.Find("TutorialReplayRow") != null) return;
+
+        GameObject row = new GameObject("TutorialReplayRow", typeof(RectTransform), typeof(LayoutElement), typeof(Image), typeof(Button));
+        row.transform.SetParent(content, false);
+        row.GetComponent<LayoutElement>().preferredHeight = 88f;
+        Image background = row.GetComponent<Image>();
+        background.color = new Color(0.24f, 0.32f, 0.43f, 1f);
+        Button button = row.GetComponent<Button>();
+        button.targetGraphic = background;
+        button.onClick.AddListener(StartTutorialFromSettings);
+
+        TMP_FontAsset font = cheatPasswordErrorText != null ? cheatPasswordErrorText.font : null;
+        CreateTutorialReplayText(row.transform, "Title", "튜토리얼 다시 보기", font, 19f, FontStyles.Bold,
+            new Vector2(0f, 0.48f), new Vector2(1f, 1f));
+        CreateTutorialReplayText(row.transform, "Description", "게임 기본 흐름과 정원 기능 안내를 다시 확인합니다.", font, 13f, FontStyles.Normal,
+            new Vector2(0f, 0f), new Vector2(1f, 0.5f));
+    }
+
+    private void StartTutorialFromSettings()
+    {
+        Close();
+        TutorialManager.EnsureInstance()?.ReplayFromSettings();
+    }
+
+    private static void CreateTutorialReplayText(Transform parent, string objectName, string value, TMP_FontAsset font,
+        float fontSize, FontStyles fontStyle, Vector2 anchorMin, Vector2 anchorMax)
+    {
+        GameObject textObject = new GameObject(objectName, typeof(RectTransform), typeof(TextMeshProUGUI));
+        textObject.transform.SetParent(parent, false);
+        RectTransform rect = textObject.GetComponent<RectTransform>();
+        rect.anchorMin = anchorMin;
+        rect.anchorMax = anchorMax;
+        rect.offsetMin = new Vector2(18f, 4f);
+        rect.offsetMax = new Vector2(-18f, -4f);
+
+        TMP_Text text = textObject.GetComponent<TMP_Text>();
+        if (font != null) text.font = font;
+        text.text = value;
+        text.fontSize = fontSize;
+        text.fontStyle = fontStyle;
+        text.color = Color.white;
+        text.alignment = TextAlignmentOptions.Left;
+        text.raycastTarget = false;
+    }
+
+    // ===================================================================
+    // 사운드 설정 UI 동적 생성 및 바인딩
+    // ===================================================================
+
+    private void EnsureSoundSettingsUI()
+    {
+        if (bgmSlider != null && sfxSlider != null)
+        {
+            bgmSlider.onValueChanged.AddListener(OnBgmSliderChanged);
+            sfxSlider.onValueChanged.AddListener(OnSfxSliderChanged);
+            if (bgmMuteButton != null) bgmMuteButton.onClick.AddListener(ToggleBgmMute);
+            if (sfxMuteButton != null) sfxMuteButton.onClick.AddListener(ToggleSfxMute);
+            return;
+        }
+
+        Transform content = root.transform.Find("Scroll View/Viewport/Content");
+        if (content == null)
+        {
+            var vlg = root.GetComponentInChildren<VerticalLayoutGroup>();
+            if (vlg != null) content = vlg.transform;
+        }
+
+        if (content == null) return;
+
+        TMP_FontAsset font = cheatPasswordErrorText != null ? cheatPasswordErrorText.font : null;
+
+        // BGM 행 생성
+        if (bgmSlider == null)
+        {
+            (bgmSlider, bgmValueText, bgmMuteButton, bgmMuteButtonText) =
+                CreateSoundWidgetRow(content, font, "배경음악 (BGM)", "게임 배경음악의 음량을 조절합니다.", new Color(0.2f, 0.45f, 0.75f, 1f));
+            bgmSlider.onValueChanged.AddListener(OnBgmSliderChanged);
+            bgmMuteButton.onClick.AddListener(ToggleBgmMute);
+            bgmSlider.transform.parent.SetSiblingIndex(0); // 목록 최상단 배치
+        }
+
+        // SFX 행 생성
+        if (sfxSlider == null)
+        {
+            (sfxSlider, sfxValueText, sfxMuteButton, sfxMuteButtonText) =
+                CreateSoundWidgetRow(content, font, "효과음 (SFX)", "꽃 터치, 개화, 레벨업 등 효과음 음량을 조절합니다.", new Color(0.25f, 0.65f, 0.40f, 1f));
+            sfxSlider.onValueChanged.AddListener(OnSfxSliderChanged);
+            sfxMuteButton.onClick.AddListener(ToggleSfxMute);
+            sfxSlider.transform.parent.SetSiblingIndex(1); // 두 번째 배치
+        }
+    }
+
+    private (Slider slider, TMP_Text valText, Button muteBtn, TMP_Text muteBtnText) CreateSoundWidgetRow(
+        Transform parent, TMP_FontAsset font, string title, string description, Color themeColor)
+    {
+        GameObject row = new GameObject($"Row_{title}");
+        row.transform.SetParent(parent, false);
+
+        LayoutElement rowLE = row.AddComponent<LayoutElement>();
+        rowLE.preferredHeight = 96f;
+
+        Image rowBg = row.AddComponent<Image>();
+        rowBg.color = new Color(1f, 1f, 1f, 0.05f);
+
+        // 1. 좌측 라벨 & 설명
+        GameObject titleGO = new GameObject("Title");
+        titleGO.transform.SetParent(row.transform, false);
+        RectTransform titleRT = titleGO.AddComponent<RectTransform>();
+        titleRT.anchorMin = new Vector2(0f, 0.5f);
+        titleRT.anchorMax = new Vector2(0.52f, 1f);
+        titleRT.offsetMin = new Vector2(16f, 4f);
+        titleRT.offsetMax = new Vector2(-8f, -8f);
+
+        TMP_Text titleText = titleGO.AddComponent<TextMeshProUGUI>();
+        if (font != null) titleText.font = font;
+        titleText.text = title;
+        titleText.fontSize = 20f;
+        titleText.fontStyle = FontStyles.Bold;
+        titleText.color = Color.white;
+        titleText.alignment = TextAlignmentOptions.Left;
+
+        GameObject descGO = new GameObject("Description");
+        descGO.transform.SetParent(row.transform, false);
+        RectTransform descRT = descGO.AddComponent<RectTransform>();
+        descRT.anchorMin = new Vector2(0f, 0f);
+        descRT.anchorMax = new Vector2(0.52f, 0.5f);
+        descRT.offsetMin = new Vector2(16f, 8f);
+        descRT.offsetMax = new Vector2(-8f, -4f);
+
+        TMP_Text descText = descGO.AddComponent<TextMeshProUGUI>();
+        if (font != null) descText.font = font;
+        descText.text = description;
+        descText.fontSize = 12f;
+        descText.color = new Color(0.7f, 0.7f, 0.75f, 1f);
+        descText.alignment = TextAlignmentOptions.TopLeft;
+
+        // 2. 우측 슬라이더 컨테이너
+        GameObject sliderArea = new GameObject("SliderArea");
+        sliderArea.transform.SetParent(row.transform, false);
+        RectTransform saRT = sliderArea.AddComponent<RectTransform>();
+        saRT.anchorMin = new Vector2(0.52f, 0.2f);
+        saRT.anchorMax = new Vector2(0.85f, 0.8f);
+        saRT.offsetMin = Vector2.zero;
+        saRT.offsetMax = Vector2.zero;
+
+        // 슬라이더 루트
+        GameObject sliderGO = new GameObject("Slider");
+        sliderGO.transform.SetParent(sliderArea.transform, false);
+        RectTransform sliderRT = sliderGO.AddComponent<RectTransform>();
+        sliderRT.anchorMin = new Vector2(0f, 0.4f);
+        sliderRT.anchorMax = new Vector2(0.82f, 0.7f);
+        sliderRT.offsetMin = Vector2.zero;
+        sliderRT.offsetMax = Vector2.zero;
+
+        Slider slider = sliderGO.AddComponent<Slider>();
+        slider.minValue = 0f;
+        slider.maxValue = 1f;
+
+        // 배경 트랙
+        GameObject bgGO = new GameObject("Background");
+        bgGO.transform.SetParent(sliderGO.transform, false);
+        RectTransform bgRT = bgGO.AddComponent<RectTransform>();
+        bgRT.anchorMin = Vector2.zero;
+        bgRT.anchorMax = Vector2.one;
+        bgRT.offsetMin = Vector2.zero;
+        bgRT.offsetMax = Vector2.zero;
+        Image bgImg = bgGO.AddComponent<Image>();
+        bgImg.color = new Color(0.2f, 0.22f, 0.26f, 1f);
+
+        // 필(Fill) 영역
+        GameObject fillArea = new GameObject("Fill Area");
+        fillArea.transform.SetParent(sliderGO.transform, false);
+        RectTransform faRT = fillArea.AddComponent<RectTransform>();
+        faRT.anchorMin = Vector2.zero;
+        faRT.anchorMax = Vector2.one;
+        faRT.offsetMin = Vector2.zero;
+        faRT.offsetMax = Vector2.zero;
+
+        GameObject fillGO = new GameObject("Fill");
+        fillGO.transform.SetParent(fillArea.transform, false);
+        RectTransform fillRT = fillGO.AddComponent<RectTransform>();
+        fillRT.anchorMin = Vector2.zero;
+        fillRT.anchorMax = Vector2.one;
+        fillRT.offsetMin = Vector2.zero;
+        fillRT.offsetMax = Vector2.zero;
+        Image fillImg = fillGO.AddComponent<Image>();
+        fillImg.color = themeColor;
+
+        slider.fillRect = fillRT;
+        slider.targetGraphic = fillImg;
+
+        // 수치 텍스트 (예: "70%")
+        GameObject valGO = new GameObject("ValueText");
+        valGO.transform.SetParent(sliderArea.transform, false);
+        RectTransform valRT = valGO.AddComponent<RectTransform>();
+        valRT.anchorMin = new Vector2(0.84f, 0.2f);
+        valRT.anchorMax = new Vector2(1f, 0.8f);
+        valRT.offsetMin = Vector2.zero;
+        valRT.offsetMax = Vector2.zero;
+
+        TMP_Text valText = valGO.AddComponent<TextMeshProUGUI>();
+        if (font != null) valText.font = font;
+        valText.fontSize = 14f;
+        valText.fontStyle = FontStyles.Bold;
+        valText.color = Color.white;
+        valText.alignment = TextAlignmentOptions.Center;
+        valText.text = "50%";
+
+        // 3. 음소거 토글 버튼
+        GameObject muteBtnGO = new GameObject("MuteBtn");
+        muteBtnGO.transform.SetParent(row.transform, false);
+        RectTransform mbRT = muteBtnGO.AddComponent<RectTransform>();
+        mbRT.anchorMin = new Vector2(0.87f, 0.25f);
+        mbRT.anchorMax = new Vector2(0.98f, 0.75f);
+        mbRT.offsetMin = Vector2.zero;
+        mbRT.offsetMax = Vector2.zero;
+
+        Image mbImg = muteBtnGO.AddComponent<Image>();
+        mbImg.color = new Color(0.28f, 0.30f, 0.35f, 1f);
+        Button muteBtn = muteBtnGO.AddComponent<Button>();
+        muteBtn.targetGraphic = mbImg;
+
+        GameObject mbTxtGO = new GameObject("Label");
+        mbTxtGO.transform.SetParent(muteBtnGO.transform, false);
+        RectTransform mbTxtRT = mbTxtGO.AddComponent<RectTransform>();
+        mbTxtRT.anchorMin = Vector2.zero;
+        mbTxtRT.anchorMax = Vector2.one;
+        mbTxtRT.offsetMin = Vector2.zero;
+        mbTxtRT.offsetMax = Vector2.zero;
+
+        TMP_Text muteBtnText = mbTxtGO.AddComponent<TextMeshProUGUI>();
+        if (font != null) muteBtnText.font = font;
+        muteBtnText.fontSize = 12f;
+        muteBtnText.fontStyle = FontStyles.Bold;
+        muteBtnText.color = Color.white;
+        muteBtnText.alignment = TextAlignmentOptions.Center;
+        muteBtnText.text = "음소거";
+
+        return (slider, valText, muteBtn, muteBtnText);
+    }
+
+    private void SyncSoundUI()
+    {
+        if (SoundManager.Instance == null) return;
+
+        if (bgmSlider != null)
+        {
+            bgmSlider.SetValueWithoutNotify(SoundManager.Instance.bgmVolume);
+            if (bgmValueText != null)
+                bgmValueText.text = $"{Mathf.RoundToInt(SoundManager.Instance.bgmVolume * 100f)}%";
+        }
+
+        if (sfxSlider != null)
+        {
+            sfxSlider.SetValueWithoutNotify(SoundManager.Instance.sfxVolume);
+            if (sfxValueText != null)
+                sfxValueText.text = $"{Mathf.RoundToInt(SoundManager.Instance.sfxVolume * 100f)}%";
+        }
+
+        if (bgmMuteButtonText != null)
+            bgmMuteButtonText.text = SoundManager.Instance.isBgmMuted ? "해제" : "음소거";
+
+        if (sfxMuteButtonText != null)
+            sfxMuteButtonText.text = SoundManager.Instance.isSfxMuted ? "해제" : "음소거";
+    }
+
+    private void OnBgmSliderChanged(float val)
+    {
+        if (SoundManager.Instance != null)
+            SoundManager.Instance.SetBGMVolume(val);
+        if (bgmValueText != null)
+            bgmValueText.text = $"{Mathf.RoundToInt(val * 100f)}%";
+    }
+
+    private void OnSfxSliderChanged(float val)
+    {
+        if (SoundManager.Instance != null)
+        {
+            SoundManager.Instance.SetSFXVolume(val);
+            SoundManager.Instance.PlayTapSound(false); // 볼륨 확인용 즉각 피드백음 재생
+        }
+        if (sfxValueText != null)
+            sfxValueText.text = $"{Mathf.RoundToInt(val * 100f)}%";
+    }
+
+    private void ToggleBgmMute()
+    {
+        if (SoundManager.Instance != null)
+        {
+            SoundManager.Instance.SetBGMMuted(!SoundManager.Instance.isBgmMuted);
+            SyncSoundUI();
+        }
+    }
+
+    private void ToggleSfxMute()
+    {
+        if (SoundManager.Instance != null)
+        {
+            SoundManager.Instance.SetSFXMuted(!SoundManager.Instance.isSfxMuted);
+            SyncSoundUI();
         }
     }
 }

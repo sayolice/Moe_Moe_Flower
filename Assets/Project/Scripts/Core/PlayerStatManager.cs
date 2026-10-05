@@ -91,9 +91,11 @@ public class PlayerStatManager : MonoBehaviour
         if (GameManager.Instance == null) return 0;
 
         int gained = 0;
-        while (gained < levels)
+        int levelLimit = Math.Min(Math.Max(0, levels), 100000);
+        while (gained < levelLimit && instance.currentLevel < int.MaxValue)
         {
             BigNumber cost = data.GetUpgradeCost(instance.currentLevel);
+            if (cost <= BigNumber.Zero) break;
             if (!GameManager.Instance.TrySpendGold(cost)) break;
 
             instance.currentLevel++;
@@ -141,8 +143,8 @@ public class PlayerStatManager : MonoBehaviour
 
         foreach (PlayerStatSaveEntry entry in savedStats)
         {
-            if (instances.TryGetValue(entry.type, out PlayerStatInstance instance))
-                instance.currentLevel = entry.currentLevel;
+            if (entry != null && instances.TryGetValue(entry.type, out PlayerStatInstance instance))
+                instance.currentLevel = Math.Max(0, entry.currentLevel);
         }
     }
 }

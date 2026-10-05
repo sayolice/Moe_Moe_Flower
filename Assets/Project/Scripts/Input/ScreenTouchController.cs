@@ -108,7 +108,7 @@ public class ScreenTouchController : MonoBehaviour
 
             if (delta.magnitude < swipeThreshold)
             {
-                TouchCurrentFlower();
+                TouchCurrentFlower(currentPos);
             }
             else if (zoomedIn)
             {
@@ -125,7 +125,7 @@ public class ScreenTouchController : MonoBehaviour
         }
     }
 
-    private void TouchCurrentFlower()
+    private void TouchCurrentFlower(Vector2 screenPos)
     {
         if (FlowerManager.Instance == null)
         {
@@ -133,7 +133,39 @@ public class ScreenTouchController : MonoBehaviour
             return;
         }
 
+        FlowerInstance instance = FlowerManager.Instance.GetCurrentInstance();
+        bool isBloomed = instance != null && instance.isBloomed;
+
         FlowerManager.Instance.ClickCurrentFlower();
+
+        // 1. 사운드 재생 (연속 터치 시 피치 상승 연출)
+        if (SoundManager.Instance != null)
+        {
+            SoundManager.Instance.PlayTapSound(isBloomed);
+        }
+
+        // 2. 터치 위치 VFX 피드백 (플로팅 텍스트 & 반짝임 파티클)
+        if (TouchFeedbackManager.Instance != null)
+        {
+            if (!isBloomed)
+            {
+                double touchAffection = PlayerStatManager.Instance != null
+                    ? PlayerStatManager.Instance.GetCurrentValue(PlayerStatType.TouchAffection).ToDouble()
+                    : 1.0;
+                string text = $"+{NumberFormatUtil.Format(touchAffection)}";
+                TouchFeedbackManager.Instance.SpawnTapFeedback(screenPos, text, new Color(1f, 0.45f, 0.65f, 1f));
+            }
+            else
+            {
+                TouchFeedbackManager.Instance.SpawnTapFeedback(screenPos, "+1 유대", new Color(0.65f, 0.85f, 1f, 1f));
+            }
+        }
+
+        // 3. 꽃소녀 터치 상호작용 (바운스 애니메이션 + 말풍선 대사 + 하트)
+        if (FlowerDisplayController.Instance != null)
+        {
+            FlowerDisplayController.Instance.TriggerTouchInteraction();
+        }
     }
 
     private void SwipeToNext()

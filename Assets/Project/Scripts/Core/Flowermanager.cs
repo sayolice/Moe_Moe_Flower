@@ -29,6 +29,8 @@ public class FlowerManager : MonoBehaviour
     public event Action<string> OnDisplayedFlowerChanged;
     /// <summary> 특정 꽃이 개화했을 때 발생. id 전달. </summary>
     public event Action<string> OnFlowerBloomed;
+    /// <summary> 메인 화면의 현재 꽃을 실제로 터치했을 때 발생. 튜토리얼의 첫 단계 완료 판정용. </summary>
+    public event Action OnCurrentFlowerClicked;
     /// <summary> 보유 목록 자체가 바뀔 때(구매 등). 상점/도감 UI 갱신용. </summary>
     public event Action OnOwnedFlowersChanged;
     /// <summary> 특정 꽃의 유대 레벨이 올랐을 때 발생 (flowerId, newBondLevel). 연출/메모리얼 뱃지용. </summary>
@@ -353,7 +355,7 @@ public class FlowerManager : MonoBehaviour
         while (levels < SAFETY_CAP)
         {
             BigNumber cost = GetEffectiveLevelUpCost(data, fromLevel + levels);
-            if (cost > remaining) break;
+            if (cost <= BigNumber.Zero || cost > remaining) break;
 
             remaining -= cost;
             levels++;
@@ -382,7 +384,7 @@ public class FlowerManager : MonoBehaviour
         {
             foreach (FlowerInstance instance in flowers)
             {
-                if (string.IsNullOrEmpty(instance.flowerId)) continue;
+                if (instance == null || string.IsNullOrEmpty(instance.flowerId)) continue;
                 ownedFlowers[instance.flowerId] = instance;
             }
         }
@@ -438,7 +440,9 @@ public class FlowerManager : MonoBehaviour
 
         // 정원이 아직 씬에 없으면(구현 전/미배치) 전부 건너뛴다 — "정원을 안 쓰면 영향 0" 원칙.
         bool hasGarden = GardenManager.Instance != null;
-        double gardenElapsedSinceTended = hasGarden ? GardenManager.Instance.GetElapsedSecondsSinceTended() : 0;
+        double gardenElapsedSinceTended = hasGarden
+            ? Math.Max(0, GardenManager.Instance.GetElapsedSecondsSinceTended() - elapsedSeconds)
+            : 0;
         List<string> placedFlowerIds = hasGarden ? GardenManager.Instance.GetPlacedFlowerIds().ToList() : new List<string>();
         double gardenBondRate = hasGarden ? GardenManager.Instance.ActiveGardenData.bondPerSecondInGarden : 0;
 
@@ -585,18 +589,22 @@ public class FlowerManager : MonoBehaviour
     /// </summary>
     private int LevelUpLoop(string id, int maxLevels)
     {
+        const int MaxPaidLevelsPerAction = 100000;
         FlowerInstance instance = GetInstance(id);
         FlowerData data = GetFlowerData(id);
-        if (instance == null || data == null) return 0;
+        if (instance == null || data == null || GameManager.Instance == null) return 0;
         if (!instance.isBloomed) return 0; // 개화한 꽃만 레벨업 가능
+
+        int paidLevelLimit = Math.Min(Math.Max(0, maxLevels), MaxPaidLevelsPerAction);
 
         int paidGained = 0;
         int freeGained = 0;
         BigNumber totalGoldSpent = BigNumber.Zero;
 
-        while (paidGained < maxLevels)
+        while (paidGained < paidLevelLimit && instance.currentLevel < int.MaxValue)
         {
             BigNumber cost = GetEffectiveLevelUpCost(data, instance.currentLevel);
+            if (cost <= BigNumber.Zero) break;
             if (!GameManager.Instance.TrySpendGold(cost)) break; // 골드 부족 시 여기서 중단
 
             totalGoldSpent += cost;
@@ -605,7 +613,7 @@ public class FlowerManager : MonoBehaviour
 
             // 벚꽃: 지금 막 구매한 이 레벨 1개에 대해서만 독립 판정한다.
             // (액션 1회가 아니라 "레벨 1개"마다 판정하므로 +1/+10/MAX 어느 것으로 사도 기대값이 동일하다)
-            if (PassiveManager.Instance != null && PassiveManager.Instance.RollBonusFreeLevel())
+            if (instance.currentLevel < int.MaxValue && PassiveManager.Instance != null && PassiveManager.Instance.RollBonusFreeLevel())
             {
                 instance.currentLevel++;
                 freeGained++;
@@ -687,6 +695,8 @@ public class FlowerManager : MonoBehaviour
                 else AddAffection(instance, data, supportBonus);
             }
         }
+
+        OnCurrentFlowerClicked?.Invoke();
     }
 
     /// <summary>
@@ -724,11 +734,29 @@ public class FlowerManager : MonoBehaviour
             instance.isBloomed = true;
             instance.currentLevel = 1;
             OnFlowerBloomed?.Invoke(instance.flowerId);
-            // TODO: 조합 보너스 체크, 메모리얼 조건 체크 훅 연결
+            HandlePostBloomTriggers(instance, data);
         }
 
         if (instance.flowerId == currentDisplayedFlowerId)
             OnDisplayedFlowerChanged?.Invoke(currentDisplayedFlowerId);
+    }
+
+    /// <summary>
+    /// 개화 직후 발동하는 후속 처리: 개화 메모리얼(Lv.0 등) 해금 조건 검사 및 향후 조합(시너지) 훅.
+    /// </summary>
+    private void HandlePostBloomTriggers(FlowerInstance instance, FlowerData data)
+    {
+        // 1. 개화 직후 해금 조건 메모리얼 검사 (예: Lv.0 개화 기념 에피소드)
+        if (data != null && data.memorialEntries != null)
+        {
+            MemorialData bloomMemorial = data.GetMemorialForBondLevel(0);
+            if (bloomMemorial != null)
+            {
+                OnDisplayedFlowerChanged?.Invoke(instance.flowerId);
+            }
+        }
+
+        // 2. 추후 조합(Combination) 시스템 도입 시 여기서 전체 개화 꽃 목록과 조합 레시피를 대조
     }
 
     /// <summary>
@@ -851,6 +879,20 @@ public class FlowerManager : MonoBehaviour
     // 않는다 — 특히 개화는 반드시 AddAffection을 태워서 패시브 활성화 등 부수 처리가 누락되지
     // 않게 한다. 이 셋 외의 "전체 일괄" 계열은 여전히 에디터 전용(CheatMenuWindow)이다.
     // ===================================================================
+
+    /// <summary>
+    /// 현재 개화한 꽃의 총 개수를 반환합니다.
+    /// </summary>
+    public int GetBloomedCount()
+    {
+        if (allFlowers == null) return 0;
+        int count = 0;
+        foreach (FlowerInstance instance in ownedFlowers.Values)
+        {
+            if (instance != null && instance.isBloomed) count++;
+        }
+        return count;
+    }
 
     /// <summary>
     /// 치트 — 지정한 보유·미개화 꽃의 애정을 요구치까지 채워 정상 개화 경로(AddAffection)를 그대로

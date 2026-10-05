@@ -20,6 +20,9 @@ public class UIManager : MonoBehaviour
     [Header("꽃 전환 인디케이터 (예: \"3 / 5\")")]
     public TMP_Text flowerIndicatorText;
 
+    [Header("미니 아레나 데모 진입")]
+    public Button miniArenaButton;
+
     [Header("AffectionBar - Background를 게이지로 사용")]
     public Image affectionBarFillImage;
 
@@ -59,8 +62,33 @@ public class UIManager : MonoBehaviour
             FlowerManager.Instance.OnTouchGoldGranted += HandleTouchGoldGranted;
         }
 
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.OnGoldChanged += HandleGoldChanged;
+            // 최초 진입 시 현재 잔액을 즉시 동기화 (이벤트가 아직 발생하지 않은 경우 대비)
+            RefreshGoldText(GameManager.Instance.totalGold);
+        }
+
         if (affectionBarButton != null)
             affectionBarButton.onClick.AddListener(OpenMemorialForCurrentFlower);
+        if (miniArenaButton != null)
+            miniArenaButton.onClick.AddListener(MiniArenaGame.ShowDemoNotice);
+    }
+
+    /// <summary>
+    /// GameManager.OnGoldChanged 구독 핸들러 — 골드 잔액 텍스트만 갱신한다.
+    /// G/s 텍스트(goldPerSecondText)는 이 핸들러가 아니라 Update → UpdateGoldUI가
+    /// 계속 갱신한다(touchGoldBurst 감쇠가 매 프레임 일어나기 때문).
+    /// </summary>
+    private void HandleGoldChanged(BigNumber newGold)
+    {
+        RefreshGoldText(newGold);
+    }
+
+    private void RefreshGoldText(BigNumber gold)
+    {
+        if (goldText != null)
+            goldText.text = $"골드 {NumberFormatUtil.Format(gold)}";
     }
 
     private void HandleTouchGoldGranted(BigNumber amount)
@@ -92,6 +120,12 @@ public class UIManager : MonoBehaviour
             FlowerManager.Instance.OnBondLevelUp -= HandleBondLevelUp;
             FlowerManager.Instance.OnTouchGoldGranted -= HandleTouchGoldGranted;
         }
+
+        if (GameManager.Instance != null)
+            GameManager.Instance.OnGoldChanged -= HandleGoldChanged;
+
+        if (miniArenaButton != null)
+            miniArenaButton.onClick.RemoveListener(MiniArenaGame.ShowDemoNotice);
     }
 
     /// <summary>
@@ -237,8 +271,8 @@ public class UIManager : MonoBehaviour
     /// </summary>
     private void UpdateGoldUI()
     {
-        if (goldText != null)
-            goldText.text = $"골드 {NumberFormatUtil.Format(GameManager.Instance.totalGold)}";
+        // goldText(잔액) 갱신은 GameManager.OnGoldChanged 이벤트 → RefreshGoldText에서 처리한다.
+        // 여기서는 매 프레임 감쇠가 필요한 touchGoldBurst와 G/s 표시만 담당한다.
 
         float decay = Mathf.Exp(-Time.deltaTime / Mathf.Max(0.01f, touchGoldBurstDecayTime));
         touchGoldBurst *= decay;
